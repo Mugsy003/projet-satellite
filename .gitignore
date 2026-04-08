@@ -1,0 +1,62 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env_sr4rs/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+env_sr4rs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project-specific large files and outputs
+Outputs/
+Previews_Landsat/
+Models/Saved_Weights/
+Models/sr4rs_model/
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*.cache
+.pytest_cache/
+.coverage
+
+# OS
+Thumbs.db
+.DS_Store
