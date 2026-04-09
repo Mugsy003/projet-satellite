@@ -28,8 +28,8 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     LOGGER.info(f"\n   📅 Traitement de l'image du {date_str}...")
 
     # 1. Construction dynamique des noms de fichiers
-    fichier_thermique = os.path.join(dossier_indices, f"{date_str}_{nom_site}_Thermique_B10.tif")
-    fichier_sortie = os.path.join(dossier_indices, f"{date_str}_{nom_site}_Thermique_Sharpened_DMS.tif")
+    fichier_thermique = os.path.join(dossier_indices, f"{date_str}_{nom_site}_LST.tif")
+    fichier_sortie = os.path.join(dossier_indices, f"{date_str}_{nom_site}_LST_Sharpened_DMS.tif")
     fichier_comparaison = os.path.join(dossier_indices, f"{date_str}_{nom_site}_Comparaison_DMS.png")
 
     liste_predicteurs = [
@@ -37,7 +37,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         f"{date_str}_{nom_site}_NDWI.tif", 
         f"{date_str}_{nom_site}_NDBI.tif", 
         f"{date_str}_{nom_site}_EVI.tif",
-        f"{nom_site}_MNT.tif"  # Le MNT n'a pas de date car il est fixe !
+        f"{nom_site}_MNT.tif"
     ]
 
     # 2. CHARGEMENT
@@ -149,7 +149,7 @@ def main():
             continue
             
         # On liste dynamiquement toutes les images thermiques présentes dans le dossier
-        fichiers_thermiques = glob.glob(os.path.join(dossier_indices, f"*_{nom_site}_Thermique_B10.tif"))
+        fichiers_thermiques = glob.glob(os.path.join(dossier_indices, f"*_{nom_site}_LST.tif"))
         
         if not fichiers_thermiques:
             LOGGER.warning(f"⚠️ Aucune image thermique à traiter pour {nom_site}.")

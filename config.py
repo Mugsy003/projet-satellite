@@ -26,7 +26,14 @@ for directory in [OUTPUT_DIR, PREVIEWS_DIR]:
 # --- Constantes du Projet ---
 TIME_OF_INTEREST = "2025-06-15/2025-09-15"
 BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16"]
+
 lt = 20
+radius_km = 3
+nb_images = 3
+max_nuages_rejet = 60
+max_jours_fusion = 3
+min_couv_rejet = 40
+couverture_parfaite = 95
 
 SITES_PILOTES = { 
     "Portugal": {"lon": -8.01, "lat": 38.181972},
