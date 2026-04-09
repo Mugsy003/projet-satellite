@@ -3,6 +3,8 @@ import glob
 import numpy as np
 import rioxarray
 import xarray as xr
+import matplotlib
+matplotlib.use('Agg') # Empêche les crashs de fenêtres (Tkinter)
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
@@ -11,6 +13,15 @@ from config import SITES_PILOTES, LOGGER
 
 # --- CONFIGURATION BASE ---
 DOSSIER_BASE = r"Outputs"
+
+def aggregate_3x3(matrice_2d):
+    """Regroupe les pixels par blocs de 3x3 et calcule la moyenne.
+    Permet de repasser d'une grille de 30m à une grille de ~90m (proche des 100m natifs)."""
+    h, w = matrice_2d.shape
+    h_new = (h // 3) * 3
+    w_new = (w // 3) * 3
+    matrice_coupee = matrice_2d[:h_new, :w_new]
+    return matrice_coupee.reshape(h_new // 3, 3, w_new // 3, 3).mean(axis=(1, 3))
 
 def load_raster_as_array(filepath):
     """Charge un fichier TIF et l'aplatit en vecteur 1D."""
@@ -91,11 +102,11 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     for i in indices_tries:
         LOGGER.info(f"      - {noms_features[i]} : {importances[i] * 100:.1f} %")
 
-    # Évaluation
+    # Évaluation Standard (Modèle d'apprentissage)
     y_test_pred = modele.predict(X_test)
     r2 = r2_score(y_test, y_test_pred)
-    rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
-    LOGGER.info(f"   📊 Précision : R² = {r2:.3f} | RMSE = {rmse:.2f} °C")
+    rmse_train = np.sqrt(mean_squared_error(y_test, y_test_pred))
+    LOGGER.info(f"   📊 Précision de l'entraînement : R² = {r2:.3f} | RMSE = {rmse_train:.2f} °C")
 
     # 5. PRÉDICTION ET SAUVEGARDE TIF
     y_pred_total_1d = np.full_like(y_thermique_1d, np.nan) 
@@ -103,6 +114,28 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
 
     h, w = raster_profile["shape"][1], raster_profile["shape"][2]
     image_sharpened_2d = y_pred_total_1d.reshape((h, w))
+
+    # =====================================================================
+    # 🔍 TEST 2 : LE BILAN D'ÉNERGIE (CONSERVATION SPATIALE)
+    # =====================================================================
+    LOGGER.info("   🔍 Vérification de la conservation d'énergie (Test à 90m)...")
+    lst_original_2d = y_thermique_1d.reshape((h, w))
+
+    # On dégrade les deux images pour les comparer à basse résolution
+    lst_original_agg = aggregate_3x3(lst_original_2d)
+    lst_sharpened_agg = aggregate_3x3(image_sharpened_2d)
+
+    # Aplatissement et filtrage des NaNs
+    y_true_agg = lst_original_agg.flatten()
+    y_pred_agg = lst_sharpened_agg.flatten()
+    masque_agg = np.isfinite(y_true_agg) & np.isfinite(y_pred_agg)
+
+    if np.sum(masque_agg) > 0:
+        rmse_energie = np.sqrt(mean_squared_error(y_true_agg[masque_agg], y_pred_agg[masque_agg]))
+        LOGGER.info(f"   ⚖️  RMSE de Conservation d'Énergie : {rmse_energie:.3f} °C")
+    else:
+        LOGGER.warning("   ⚠️ Impossible de calculer le bilan d'énergie (trop de NaNs).")
+    # =====================================================================
 
     ds_base = rioxarray.open_rasterio(fichier_thermique)
     ds_out = xr.DataArray(
@@ -118,20 +151,20 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     plt.figure(figsize=(14, 7))
     
     plt.subplot(1, 2, 1)
-    plt.imshow(y_thermique_1d.reshape((h, w)), cmap='magma', vmin=20, vmax=50) 
+    plt.imshow(lst_original_2d, cmap='magma', vmin=10, vmax=50) 
     plt.title("Avant : Thermique 100m", fontsize=14)
     plt.colorbar(fraction=0.046, pad=0.04)
     plt.axis('off')
 
     plt.subplot(1, 2, 2)
-    plt.imshow(image_sharpened_2d, cmap='magma', vmin=20, vmax=50)
-    plt.title(f"Après : DMS (R²={r2:.2f}, RMSE={rmse:.2f}°C)", fontsize=14)
+    plt.imshow(image_sharpened_2d, cmap='magma', vmin=10, vmax=50)
+    plt.title(f"Après : DMS (R²={r2:.2f}, Énergie RMSE={rmse_energie:.2f}°C)", fontsize=14)
     plt.colorbar(fraction=0.046, pad=0.04)
     plt.axis('off')
 
     plt.tight_layout()
     plt.savefig(fichier_comparaison, dpi=200, bbox_inches='tight')
-    plt.close() # Indispensable pour ne pas saturer la RAM dans une boucle !
+    plt.close()
 
 def main():
     LOGGER.info("========================================")
@@ -158,7 +191,6 @@ def main():
         # Pour chaque image thermique trouvée, on extrait la date et on lance l'algo
         for chemin_fichier in fichiers_thermiques:
             nom_fichier = os.path.basename(chemin_fichier)
-            # Extrait la date "YYYY-MM-DD" au début du nom de fichier
             date_str = nom_fichier.split('_')[0] 
             
             process_dms_for_image(nom_site, date_str, dossier_indices)
