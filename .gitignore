@@ -31,9 +31,10 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
+antigravity.config.json
 # Virtual environments
 env_sr4rs/
+venv/
 
 # IDE
 .vscode/

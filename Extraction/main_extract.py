@@ -8,7 +8,7 @@ import os
 import json
 
 # Imports depuis la racine du projet
-from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, PREVIEWS_DIR, OUTPUT_DIR, lt
+from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, PREVIEWS_DIR, OUTPUT_DIR, lt, radius_km
 from Utils import get_bbox_from_point
 
 # Imports locaux du module Extraction
@@ -19,7 +19,6 @@ def main():
 
     catalog = stac_client.connect_to_catalog()
     
-    # Dictionnaire qui va stocker notre "passage de relais"
     manifest_data = {}
 
     for pays, coords in SITES_PILOTES.items():
@@ -27,7 +26,7 @@ def main():
         LOGGER.info(f"🔍 Extraction pour le site : {pays}")
         
         # 1. Calcul de la zone (BBox)
-        bbox = get_bbox_from_point(coords["lon"], coords["lat"], 3)
+        bbox = get_bbox_from_point(coords["lon"], coords["lat"], radius_km=3)
         LOGGER.info(f"   BBox = {bbox}")
 
         # 2. Recherche des images

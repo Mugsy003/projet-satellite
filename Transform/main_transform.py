@@ -10,7 +10,7 @@ import pystac_client
 import planetary_computer
 
 # Imports depuis la racine
-from config import LOGGER, SITES_PILOTES, BANDS_OF_INTEREST, OUTPUT_DIR
+from config import LOGGER, SITES_PILOTES, BANDS_OF_INTEREST, OUTPUT_DIR, lt, max_nuages_rejet, max_jours_fusion, min_couv_rejet, couverture_parfaite
 from Utils import get_bbox_from_point
 
 # Imports locaux du module
@@ -58,7 +58,15 @@ def main():
         mes_items = list(search.items())
         
         # C. Lancer la machinerie lourde (Mode Time-Series)
-        liste_images = processor.process_satellite_timeseries(mes_items, bbox, BANDS_OF_INTEREST)
+        liste_images = processor.process_satellite_timeseries(
+            mes_items=mes_items, 
+            bbox=bbox, 
+            bands_of_interest=BANDS_OF_INTEREST, 
+            max_jours_fusion=max_jours_fusion, 
+            max_nuages_rejet=max_nuages_rejet, 
+            min_couv_rejet=min_couv_rejet, 
+            couverture_parfaite=couverture_parfaite
+        )
         
         if not liste_images:
             continue

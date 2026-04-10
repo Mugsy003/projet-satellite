@@ -8,7 +8,7 @@ import requests
 import pystac_client
 import planetary_computer
 
-from config import LOGGER
+from config import LOGGER, nb_images
 
 def connect_to_catalog():
     """Établit et retourne la connexion authentifiée au catalogue STAC."""
@@ -35,8 +35,7 @@ def search_images(catalog, bbox, time_of_interest, pays, lt=20):
     tous_les_items = list(search.items())
     LOGGER.info(f"   Nombre d'images trouvées pour {pays} : {len(tous_les_items)}")
     
-    # ⚠️ Logique de sélection
-    mes_items = tous_les_items[:3]
+    mes_items = tous_les_items[:nb_images]
         
     for item in mes_items:
         cloud_cover = item.properties.get('eo:cloud_cover', 'Inconnu')
