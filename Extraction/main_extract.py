@@ -40,7 +40,6 @@ def main():
         stac_client.download_preview(mes_items[0], pays, PREVIEWS_DIR)
 
         # 4. Enregistrement des IDs pour le manifeste
-        # On ne stocke que les identifiants (des chaînes de caractères), pas les objets complexes
         liste_ids = [item.id for item in mes_items]
         manifest_data[pays] = liste_ids
 

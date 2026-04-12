@@ -18,7 +18,7 @@ def process_and_save_filtered_composition(img_reflectance, pays, output_dir):
     img_median = median_filter_2d(img_reflectance, kernel_size=3)
     
     # 2. Transposition (Hauteur, Largeur, Couleurs) et étirement du contraste
-    img_rgb = img_reflectance.transpose(1, 2, 0)
+    img_rgb = img_median.transpose(1, 2, 0)
     img_rgb = stretch_iqr(img_rgb)
     
     # Sécurité pour Matplotlib (valeurs entre 0 et 1)
