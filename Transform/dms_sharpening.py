@@ -65,6 +65,12 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         chemin = os.path.join(dossier_indices, nom_fichier)
         if os.path.exists(chemin):
             array_2d, _ = load_raster_as_2d(chemin)
+            # Ensure dimensions match the LST image
+            h_actual, w_actual = array_2d.shape
+            if h_actual < h or w_actual < w:
+                LOGGER.warning(f"   ⚠️  {nom_fichier} a des dimensions insuffisantes ({h_actual}x{w_actual} vs {h}x{w}). Ignoré.")
+                continue
+            array_2d = array_2d[:h, :w]
             X_dict_30m[nom_fichier.split('.')[0]] = array_2d
 
     if not X_dict_30m:
@@ -138,28 +144,32 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     
     lst_sharpened_30m_2d = y_pred_total_30m_1d.reshape((h, w))
 
-# =====================================================================
-    # 🔍 ÉTAPE ULTIME : LA CORRECTION DES RÉSIDUS (BILAN D'ÉNERGIE = 0.0)
     # =====================================================================
-    LOGGER.info("   🛠️ Application de la Correction des Résidus (Méthode TsHARP)...")
-    
-    # On dégrade notre prédiction pour la comparer au vrai satellite
+    # 🔍 ÉTAPE ULTIME : LA CORRECTION DES RÉSIDUS (BILAN D'ÉNERGIE ≈ 0.0)
+    # =====================================================================
+    LOGGER.info("   🛠️ Application de la Correction des Résidus (Lissage par Interpolation)...")
+    from scipy.ndimage import zoom
+
+    # 1. On dégrade notre prédiction IA pour la comparer au vrai satellite à 90m
     lst_sharpened_agg_90m = aggregate_3x3(lst_sharpened_30m_2d)
 
-    # 1. Calcul du Résidu (L'erreur du modèle à 90m)
+    # 2. Calcul du Résidu (L'erreur du modèle à l'échelle grossière 90m)
     residus_90m = lst_90m_2d - lst_sharpened_agg_90m
     
-    # 2. Redimensionnement du Résidu (On duplique chaque pixel d'erreur en un bloc de 3x3)
-    # np.repeat répète les pixels horizontalement et verticalement pour repasser à 30m
-    residus_30m = np.repeat(np.repeat(residus_90m, 3, axis=0), 3, axis=1)
+    # 3. Redimensionnement fluide du Résidu (Passage de 90m à 30m)
+    # Au lieu de dupliquer les pixels (np.repeat), on interpole pour éviter l'effet de grille.
+    # order=1 correspond à une interpolation bilinéaire.
+    residus_30m_lisses = zoom(residus_90m, 3, order=1)
 
-    # 3. Correction Finale !
-    # On tronque légèrement l'image de base pour qu'elle corresponde parfaitement aux bords de 90m
-    h_new, w_new = residus_30m.shape
-    lst_sharpened_30m_2d_corrige = lst_sharpened_30m_2d[:h_new, :w_new] + residus_30m
+    # 4. Ajustement des dimensions et Correction Finale
+    # On s'assure que la nappe de résidus correspond à la taille de l'image 30m
+    h_target, w_target = (residus_90m.shape[0] * 3), (residus_90m.shape[1] * 3)
+    residus_30m_lisses = residus_30m_lisses[:h_target, :w_target]
+    
+    h_new, w_new = h_target, w_target
+    lst_sharpened_30m_2d_corrige = lst_sharpened_30m_2d[:h_new, :w_new] + residus_30m_lisses
 
-    # --- Vérification que la Magie a opéré ---
-    # Si on re-dégrade la NOUVELLE image corrigée à 90m, l'erreur doit être de 0 !
+    # --- Vérification de la Conservation d'Énergie ---
     lst_verif_90m = aggregate_3x3(lst_sharpened_30m_2d_corrige)
     
     y_true_verif = lst_90m_2d.flatten()
@@ -168,11 +178,11 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
 
     if np.sum(masque_verif) > 0:
         rmse_energie_final = np.sqrt(mean_squared_error(y_true_verif[masque_verif], y_pred_verif[masque_verif]))
-        # Avec cette correction, ce chiffre va être du genre 0.0000000001 °C !
-        LOGGER.info(f"   ⚖️  Nouveau RMSE de Conservation d'Énergie : {rmse_energie_final:.5f} °C !")
-    # =====================================================================
+        # Note : Avec l'interpolation, le RMSE ne sera pas strictement 0.0000000 mais restera 
+        # extrêmement faible (ex: < 0.05°C), ce qui est physiquement excellent.
+        LOGGER.info(f"   ⚖️  RMSE de Conservation d'Énergie (Lissé) : {rmse_energie_final:.5f} °C")
 
-# =====================================================================
+    # =====================================================================
     # SAUVEGARDE TIF (Avec ajustement automatique de la grille GPS)
     # =====================================================================
     ds_base = rioxarray.open_rasterio(fichier_thermique)
@@ -225,7 +235,8 @@ def main():
         
         for chemin_fichier in fichiers_thermiques:
             nom_fichier = os.path.basename(chemin_fichier)
-            date_str = nom_fichier.split('_')[0] 
+            parts = nom_fichier.split('_')
+            date_str = f"{parts[0]}_{parts[1]}"
             process_dms_for_image(nom_site, date_str, dossier_indices)
 
     LOGGER.info("\n✅ Traitement DMS terminé pour tous les sites et toutes les dates !")

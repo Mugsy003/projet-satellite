@@ -1,57 +1,62 @@
 """
 Extraction/main_extract.py
-Point d'entrée de la phase d'extraction.
-Exécute les recherches STAC, télécharge les previews et génère un Manifeste (JSON)
-contenant les IDs des images sélectionnées pour la phase de Transformation.
 """
 import os
 import json
-
-# Imports depuis la racine du projet
-from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, PREVIEWS_DIR, OUTPUT_DIR, lt, radius_km
+from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, PREVIEWS_DIR, OUTPUT_DIR, ltd, radius_km, nb_images
 from Utils import get_bbox_from_point
-
-# Imports locaux du module Extraction
 import Extraction.stac_client as stac_client
 
 def main():
-    LOGGER.info("🚀 DÉBUT DE LA PHASE 1 : EXTRACTION")
+    LOGGER.info("🚀 DÉBUT DE LA PHASE 1 : EXTRACTION (MODE DOUBLE MANIFESTE)")
 
     catalog = stac_client.connect_to_catalog()
     
-    manifest_data = {}
+    manifest_stats = {}      # Pour ton script cloud_statistics.py (Toutes les images)
+    manifest_extraction = {} # Pour la Phase 2 Transform (Seulement images propres)
 
     for pays, coords in SITES_PILOTES.items():
         LOGGER.info(f"\n========================================")
-        LOGGER.info(f"🔍 Extraction pour le site : {pays}")
+        LOGGER.info(f"🔍 Traitement du site : {pays}")
         
-        # 1. Calcul de la zone (BBox)
-        bbox = get_bbox_from_point(coords["lon"], coords["lat"], radius_km=3)
-        LOGGER.info(f"   BBox = {bbox}")
-
-        # 2. Recherche des images
-        mes_items = stac_client.search_images(catalog, bbox, TIME_OF_INTEREST, pays, lt)
+        bbox = get_bbox_from_point(coords["lon"], coords["lat"], radius_km)
         
-        if not mes_items:
-            LOGGER.warning(f"   ⚠️ Aucune image exploitable trouvée pour {pays}.")
+        # 1. On récupère TOUT (via le nouveau stac_client)
+        all_items = stac_client.search_images(catalog, bbox, TIME_OF_INTEREST, pays)
+        
+        if not all_items:
             continue
-            
-        # 3. Téléchargement de la preview de la meilleure image 
-        stac_client.download_preview(mes_items[0], pays, PREVIEWS_DIR)
 
-        # 4. Enregistrement des IDs pour le manifeste
-        liste_ids = [item.id for item in mes_items]
-        manifest_data[pays] = liste_ids
-
-    # 5. Sauvegarde du manifeste JSON
-    chemin_manifeste = os.path.join(OUTPUT_DIR, "manifest_extraction.json")
-    
-    with open(chemin_manifeste, "w", encoding="utf-8") as f:
-        json.dump(manifest_data, f, indent=4)
+        # 2. Filtrage local
+        # Liste pour les stats : on prend tout
+        manifest_stats[pays] = [item.id for item in all_items]
         
-    LOGGER.info(f"\n✅ PHASE 1 TERMINÉE. Manifeste généré : {chemin_manifeste}")
-    LOGGER.info("Prêt pour la phase de Transformation")
+        # Liste pour l'extraction : on filtre selon 'ltd' de config.py
+        items_propres = [it for it in all_items if it.properties.get("eo:cloud_cover", 100) <= ltd]
+        items_propres = items_propres[:nb_images]
+        manifest_extraction[pays] = [item.id for item in items_propres]
 
+        LOGGER.info(f"   📊 Stats: {len(all_items)} images | 📥 Extraction: {len(items_propres)} images (seuil {ltd}%)")
+
+        # 3. Preview de la meilleure image (la moins nuageuse)
+        if items_propres:
+            # On trie par couverture nuageuse pour être sûr d'avoir la plus belle preview
+            items_propres.sort(key=lambda x: x.properties.get("eo:cloud_cover", 100))
+            stac_client.download_preview(items_propres[0], pays, PREVIEWS_DIR)
+
+    # 4. Sauvegarde des deux manifestes
+    path_stats = os.path.join(OUTPUT_DIR, "manifest_stats_global.json")
+    path_extract = os.path.join(OUTPUT_DIR, "manifest_extraction.json")
+
+    with open(path_stats, "w", encoding="utf-8") as f:
+        json.dump(manifest_stats, f, indent=4)
+        
+    with open(path_extract, "w", encoding="utf-8") as f:
+        json.dump(manifest_extraction, f, indent=4)
+        
+    LOGGER.info(f"\n✅ PHASE 1 TERMINÉE.")
+    LOGGER.info(f"   📈 Manifeste GLOBAL (Stats) : {path_stats}")
+    LOGGER.info(f"   ⚙️  Manifeste FILTRÉ (Transform) : {path_extract}")
 
 if __name__ == "__main__":
     main()

@@ -1,14 +1,11 @@
 """
 Extraction/stac_client.py
-Module dédié à l'interaction avec le catalogue STAC (Planetary Computer).
-Gère la connexion, les requêtes de recherche et les téléchargements HTTP.
 """
 import os
 import requests
 import pystac_client
 import planetary_computer
-
-from config import LOGGER, nb_images
+from config import LOGGER
 
 def connect_to_catalog():
     """Établit et retourne la connexion authentifiée au catalogue STAC."""
@@ -18,41 +15,32 @@ def connect_to_catalog():
         modifier=planetary_computer.sign_inplace
     )
 
-def search_images(catalog, bbox, time_of_interest, pays, lt=20):
+def search_images(catalog, bbox, time_of_interest, pays):
     """
-    Recherche les images satellites pour une zone donnée.
+    Recherche TOUTES les images satellites pour une zone donnée (sans filtre de nuages).
+    Le filtrage sera fait localement pour permettre les statistiques globales.
     """
+    # On ne met plus "eo:cloud_cover" dans la query pour tout récupérer
     search = catalog.search(
         collections=["landsat-c2-l2"],
         bbox=bbox,
         datetime=time_of_interest,
         query={
-            "eo:cloud_cover": {"lt": lt},
             "platform": {"in": ["landsat-8", "landsat-9"]} 
         }
     )
     
     tous_les_items = list(search.items())
-    LOGGER.info(f"   Nombre d'images trouvées pour {pays} : {len(tous_les_items)}")
+    LOGGER.info(f"   🛰️ {len(tous_les_items)} images trouvées au total pour {pays} (0-100% nuages)")
     
-    mes_items = tous_les_items[:nb_images]
-        
-    for item in mes_items:
-        cloud_cover = item.properties.get('eo:cloud_cover', 'Inconnu')
-        date_img = item.datetime.strftime("%Y-%m-%d") if item.datetime else "Date inconnue"
-        LOGGER.info(f"   - {item.id} | Date: {date_img} | Nuages: {cloud_cover}%")
-        
-    return mes_items
+    return tous_les_items
 
 def download_preview(selected_item, pays, previews_dir):
-
     if not selected_item or "rendered_preview" not in selected_item.assets:
-        LOGGER.warning(f"   ⚠️ Aucune prévisualisation disponible pour {pays}.")
+        LOGGER.warning(f"   ⚠️ Aucune prévisualisation disponible pour {pays}.")
         return
         
     asset_href = selected_item.assets["rendered_preview"].href
-    
-    # Création du sous-dossier pour le pays
     dossier_pays = os.path.join(previews_dir, pays)
     os.makedirs(dossier_pays, exist_ok=True)
     
@@ -63,6 +51,6 @@ def download_preview(selected_item, pays, previews_dir):
         response.raise_for_status()
         with open(chemin_complet, "wb") as f:
             f.write(response.content)
-        LOGGER.info(f"   ✅ Prévisualisation sauvegardée : {chemin_complet}")
+        LOGGER.info(f"   ✅ Prévisualisation sauvegardée : {chemin_complet}")
     except Exception as e:
-        LOGGER.error(f"   ❌ Erreur lors du téléchargement de la prévisualisation: {e}")
+        LOGGER.error(f"   ❌ Erreur téléchargement preview: {e}")

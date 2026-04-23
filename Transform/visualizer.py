@@ -5,6 +5,8 @@ et la sauvegarde des images finales (.png).
 """
 import os
 import numpy as np
+import matplotlib
+matplotlib.use('Agg') # Force le rendu sans interface graphique (Anti-Grain Geometry)
 import matplotlib.pyplot as plt
 import rasterio
 from config import LOGGER
