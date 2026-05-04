@@ -7,6 +7,7 @@ from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, PREVIEWS_DIR, OUTPUT
 from Utils import get_bbox_from_point
 import Extraction.stac_client as stac_client
 
+
 def main():
     LOGGER.info("🚀 DÉBUT DE LA PHASE 1 : EXTRACTION (MODE DOUBLE MANIFESTE)")
 

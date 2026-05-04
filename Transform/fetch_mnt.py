@@ -77,8 +77,25 @@ def download_and_align_mnt_for_all_sites():
         output_mnt = os.path.join(dossier_tif, f"{nom_site}_MNT.tif")
 
         # 2. Recherche STAC
+        import time
+        from pystac_client.exceptions import APIError
         search = catalog.search(collections=["cop-dem-glo-30"], bbox=bbox_exacte)
-        items = list(search.items())
+        
+        max_retries = 5
+        items = []
+        for attempt in range(max_retries):
+            try:
+                items = list(search.items())
+                break
+            except APIError as e:
+                LOGGER.warning(f"   ⚠️ Erreur API STAC: {e}. Tentative {attempt + 1}/{max_retries}...")
+                if attempt < max_retries - 1:
+                    time.sleep(5 * (attempt + 1))
+                else:
+                    LOGGER.error(f"   ❌ Échec de la recherche STAC après {max_retries} tentatives.")
+            except Exception as e:
+                LOGGER.error(f"   ❌ Erreur inattendue lors de la recherche: {e}")
+                break
         
         if not items:
             LOGGER.warning("   ❌ Aucun MNT trouvé sur les serveurs pour cette zone.")

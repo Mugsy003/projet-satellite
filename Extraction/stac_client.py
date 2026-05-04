@@ -29,12 +29,27 @@ def search_images(catalog, bbox, time_of_interest, pays):
             "platform": {"in": ["landsat-8", "landsat-9"]} 
         }
     )
-    
-    tous_les_items = list(search.items())
-    LOGGER.info(f"   🛰️ {len(tous_les_items)} images trouvées au total pour {pays} (0-100% nuages)")
-    
-    return tous_les_items
+    import time
+    from pystac_client.exceptions import APIError
 
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            tous_les_items = list(search.items())
+            LOGGER.info(f"   🛰️ {len(tous_les_items)} images trouvées au total pour {pays} (0-100% nuages)")
+            return tous_les_items
+        except APIError as e:
+            LOGGER.warning(f"   ⚠️ Erreur API STAC: {e}. Tentative {attempt + 1}/{max_retries}...")
+            if attempt < max_retries - 1:
+                time.sleep(5 * (attempt + 1))
+            else:
+                LOGGER.error(f"   ❌ Échec de la recherche STAC après {max_retries} tentatives.")
+                return []
+        except Exception as e:
+            LOGGER.error(f"   ❌ Erreur inattendue lors de la recherche: {e}")
+            return []
+
+    return []
 def download_preview(selected_item, pays, previews_dir):
     if not selected_item or "rendered_preview" not in selected_item.assets:
         LOGGER.warning(f"   ⚠️ Aucune prévisualisation disponible pour {pays}.")

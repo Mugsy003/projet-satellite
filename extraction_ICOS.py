@@ -5,6 +5,7 @@ from icoscp.dobj import Dobj
 from icoscp_core.icos import auth
 from config import PIDS_ICOS
 
+
 def main():
     print("🔐 Initialisation de l'authentification ICOS...")
     # auth.init_config_file() # À décommenter si tu ne l'as pas encore fait sur cette machine
@@ -35,14 +36,14 @@ def main():
             print(f"⚠️ Aucune colonne trouvée pour {site}.")
             continue
 
-        # On isole les colonnes de température du Sol (TS) et de l'Air (TA)
-        ts_cols = sorted([col for col in toutes_les_colonnes if col.startswith('TS_')])
-        ta_cols = sorted([col for col in toutes_les_colonnes if col.startswith('TA_')])
+        # On isole les colonnes de rayonnement (LW_IN et LW_OUT)
+        lw_in_cols = sorted([col for col in toutes_les_colonnes if col.startswith('LW_IN_')])
+        lw_out_cols = sorted([col for col in toutes_les_colonnes if col.startswith('LW_OUT_')])
         
-        print(f"   🔍 Capteurs Sol (TS) trouvés : {ts_cols}")
-        print(f"   🔍 Capteurs Air (TA) trouvés : {ta_cols}")
+        print(f"   🔍 Capteurs LW_IN trouvés : {lw_in_cols}")
+        print(f"   🔍 Capteurs LW_OUT trouvés : {lw_out_cols}")
 
-        colonnes_a_extraire = ['TIMESTAMP'] + ts_cols + ta_cols
+        colonnes_a_extraire = ['TIMESTAMP'] + lw_in_cols + lw_out_cols
 
         # 3. Extraction des données [cite: 170]
         df = dobj.get(columns=colonnes_a_extraire)
@@ -55,23 +56,29 @@ def main():
         df.replace([-9.99, -999.0, -9999.0], np.nan, inplace=True)
 
         # 4. FUSION INTELLIGENTE DES CAPTEURS
-        # On crée une colonne unique pour le Sol et une pour l'Air
+        # On crée une colonne unique pour LW_IN et LW_OUT
         # .bfill(axis=1) prend la première valeur non-NaN trouvée de gauche à droite
-        if ts_cols:
-            df['TS_Consolide'] = df[ts_cols].bfill(axis=1).iloc[:, 0]
+        if lw_in_cols:
+            df['LW_IN_Consolide'] = df[lw_in_cols].bfill(axis=1).iloc[:, 0]
         else:
-            df['TS_Consolide'] = np.nan
+            df['LW_IN_Consolide'] = np.nan
 
-        if ta_cols:
-            df['TA_Consolide'] = df[ta_cols].bfill(axis=1).iloc[:, 0]
+        if lw_out_cols:
+            df['LW_OUT_Consolide'] = df[lw_out_cols].bfill(axis=1).iloc[:, 0]
         else:
-            df['TA_Consolide'] = np.nan
+            df['LW_OUT_Consolide'] = np.nan
+
+        # Calcul de la température de surface (LST)
+        sigma = 5.67e-8
+        emissivite = 0.98  # Valeur pour Gebesee, ajustable par site si besoin
+
+        df['LST_Calculee'] = ((df['LW_OUT_Consolide'] - (1 - emissivite) * df['LW_IN_Consolide']) / (emissivite * sigma))**0.25 - 273.15
 
         # 5. Filtrage pour l'heure Landsat (10h20 - 10h40)
         df_validation = df.between_time('10:20', '10:40')
 
         # On ne garde que les colonnes finales pour que le CSV soit propre
-        colonnes_finales = ['TS_Consolide', 'TA_Consolide']
+        colonnes_finales = ['LW_IN_Consolide', 'LW_OUT_Consolide', 'LST_Calculee']
         df_final = df_validation[colonnes_finales].dropna(how='all')
 
         if df_final.empty:

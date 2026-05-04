@@ -55,12 +55,17 @@ for site, coords in SITES_PILOTES.items():
         df_icos['TIMESTAMP'] = pd.to_datetime(df_icos['TIMESTAMP'])
         df_icos.replace([-9.99, -999.0, -9999.0], np.nan, inplace=True)
 
-        # Consolidation dynamique des capteurs
-        ts_cols = sorted([c for c in dobj.colNames if c.startswith('TS_')]) # [cite: 43]
-        ta_cols = sorted([c for c in dobj.colNames if c.startswith('TA_')])
+        # Consolidation dynamique des capteurs (LW_IN et LW_OUT)
+        lw_in_cols = sorted([c for c in dobj.colNames if c.startswith('LW_IN_')])
+        lw_out_cols = sorted([c for c in dobj.colNames if c.startswith('LW_OUT_')])
         
-        df_icos['TS_Consolide'] = df_icos[ts_cols].bfill(axis=1).iloc[:, 0] if ts_cols else np.nan
-        df_icos['TA_Consolide'] = df_icos[ta_cols].bfill(axis=1).iloc[:, 0] if ta_cols else np.nan
+        df_icos['LW_IN_Consolide'] = df_icos[lw_in_cols].bfill(axis=1).iloc[:, 0] if lw_in_cols else np.nan
+        df_icos['LW_OUT_Consolide'] = df_icos[lw_out_cols].bfill(axis=1).iloc[:, 0] if lw_out_cols else np.nan
+
+        # Calcul de la LST
+        sigma = 5.67e-8
+        emissivite = 0.98
+        df_icos['LST_Calculee'] = ((df_icos['LW_OUT_Consolide'] - (1 - emissivite) * df_icos['LW_IN_Consolide']) / (emissivite * sigma))**0.25 - 273.15
         
     except Exception as e:
         print(f"❌ Erreur ICOS pour {site} : {e}")
@@ -88,18 +93,30 @@ for site, coords in SITES_PILOTES.items():
 
         # 1. Extraction de la Valeur Satellite (LST et NDVI)
         try:
-            # Chemin LST
-            path_lst = os.path.join(tif_folder, f)
-            # Chemin NDVI (on remplace LST_Sharpened_DMS par NDVI dans le nom du fichier)
-            path_ndvi = path_lst.replace("LST_Sharpened_DMS", "NDVI")
-            path_B10 = path_lst.replace("LST_Sharpened_DMS", "Thermique_B10")
-            rds_lst = rioxarray.open_rasterio(path_lst)
-            transformer = Transformer.from_crs("EPSG:4326", rds_lst.rio.crs, always_xy=True)
+            # Chemin LST DMS
+            path_lst_dms = os.path.join(tif_folder, f)
+            # Chemin LST TsHARP
+            path_lst_tsharp = path_lst_dms.replace("LST_Sharpened_DMS", "LST_Sharpened_TsHARP")
+            
+            # Chemin NDVI et B10
+            path_ndvi = path_lst_dms.replace("LST_Sharpened_DMS", "NDVI")
+            path_B10 = path_lst_dms.replace("LST_Sharpened_DMS", "Thermique_B10")
+            
+            rds_lst_dms = rioxarray.open_rasterio(path_lst_dms)
+            transformer = Transformer.from_crs("EPSG:4326", rds_lst_dms.rio.crs, always_xy=True)
             x_p, y_p = transformer.transform(coords["lon"], coords["lat"])
             
-            # Valeur LST
-            pixel_val = rds_lst.sel(x=x_p, y=y_p, method="nearest").values[0]
-            lst_sat = pixel_val - 273.15 if pixel_val > 200 else pixel_val
+            # Valeur LST DMS
+            pixel_val_dms = rds_lst_dms.sel(x=x_p, y=y_p, method="nearest").values[0]
+            lst_sat_dms = pixel_val_dms - 273.15 if pixel_val_dms > 200 else pixel_val_dms
+
+            # Valeur LST TsHARP
+            if os.path.exists(path_lst_tsharp):
+                rds_lst_tsharp = rioxarray.open_rasterio(path_lst_tsharp)
+                pixel_val_tsharp = rds_lst_tsharp.sel(x=x_p, y=y_p, method="nearest").values[0]
+                lst_sat_tsharp = pixel_val_tsharp - 273.15 if pixel_val_tsharp > 200 else pixel_val_tsharp
+            else:
+                lst_sat_tsharp = np.nan
 
             # Valeur NDVI
             if os.path.exists(path_ndvi):
@@ -115,11 +132,12 @@ for site, coords in SITES_PILOTES.items():
                 b10_sat = np.nan
 
         except Exception:
-            lst_sat = np.nan
+            lst_sat_dms = np.nan
+            lst_sat_tsharp = np.nan
             ndvi_sat = np.nan
             b10_sat = np.nan
 
-        if pd.isna(lst_sat):
+        if pd.isna(lst_sat_dms) and pd.isna(lst_sat_tsharp):
             continue
 
         # 2. Recherche ICOS avec Marge de Tolérance
@@ -131,12 +149,14 @@ for site, coords in SITES_PILOTES.items():
             index_le_plus_proche = diff_temps[masque_tolerance].idxmin()
             ligne_match = df_icos.loc[index_le_plus_proche]
             
-            ts_ground = ligne_match['TS_Consolide']
-            ta_ground = ligne_match['TA_Consolide']
+            lst_ground = ligne_match['LST_Calculee']
+            lw_in_ground = ligne_match['LW_IN_Consolide']
+            lw_out_ground = ligne_match['LW_OUT_Consolide']
             heure_icos = ligne_match['TIMESTAMP']
             
-            if pd.notna(ts_ground):
-                biais = abs(lst_sat - ts_ground)
+            if pd.notna(lst_ground):
+                biais_dms = abs(lst_sat_dms - lst_ground) if pd.notna(lst_sat_dms) else np.nan
+                biais_tsharp = abs(lst_sat_tsharp - lst_ground) if pd.notna(lst_sat_tsharp) else np.nan
                 decalage_min = (heure_icos - target_dt).total_seconds() / 60
                 
                 resultats_globaux.append({
@@ -145,13 +165,16 @@ for site, coords in SITES_PILOTES.items():
                     "NDVI": round(ndvi_sat, 3) if pd.notna(ndvi_sat) else "N/A",
                     "Heure_ICOS_Retenue": heure_icos.strftime("%H:%M"),
                     "Decalage_Temporel (min)": round(decalage_min, 1),
-                    "LST_Sat (°C)": round(lst_sat, 2),
-                    "ICOS_Sol (°C)": round(ts_ground, 2),
-                    "ICOS_Air (°C)": round(ta_ground, 2),
+                    "LST_Sat_DMS (°C)": round(lst_sat_dms, 2) if pd.notna(lst_sat_dms) else "N/A",
+                    "LST_Sat_TsHARP (°C)": round(lst_sat_tsharp, 2) if pd.notna(lst_sat_tsharp) else "N/A",
+                    "ICOS_LST (°C)": round(lst_ground, 2),
+                    "ICOS_LW_IN": round(lw_in_ground, 2),
+                    "ICOS_LW_OUT": round(lw_out_ground, 2),
                     "B10s (°C)": round(b10_sat, 2),
-                    "Biais (°C)": round(biais, 2)
+                    "Biais_DMS (°C)": round(biais_dms, 2) if pd.notna(biais_dms) else "N/A",
+                    "Biais_TsHARP (°C)": round(biais_tsharp, 2) if pd.notna(biais_tsharp) else "N/A"
                 })
-                print(f"      ✅ Match ICOS à {heure_icos.strftime('%H:%M')} | NDVI: {ndvi_sat:.2f} | Biais: {biais:.2f} °C")
+                print(f"      ✅ Match ICOS à {heure_icos.strftime('%H:%M')} | Biais DMS: {biais_dms:.2f}°C | Biais TsHARP: {biais_tsharp:.2f}°C" if pd.notna(biais_tsharp) else f"      ✅ Match ICOS à {heure_icos.strftime('%H:%M')} | Biais DMS: {biais_dms:.2f}°C | Biais TsHARP: N/A")
         else:
             print(f"      ⚠️ Aucune donnée ICOS trouvée dans une marge de +/- {TIME_MARGIN_MINUTES} min.")
 

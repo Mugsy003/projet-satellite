@@ -55,8 +55,28 @@ def main():
         bbox = get_bbox_from_point(coords["lon"], coords["lat"], radius_km=3)
         
         # B. Retrouver les objets STAC exacts demandés par la Phase 1
+        import time
+        from pystac_client.exceptions import APIError
         search = catalog.search(collections=["landsat-c2-l2"], ids=liste_ids)
-        mes_items = search.item_collection()
+        
+        max_retries = 5
+        mes_items = None
+        for attempt in range(max_retries):
+            try:
+                mes_items = search.item_collection()
+                break
+            except APIError as e:
+                LOGGER.warning(f"   ⚠️ Erreur API STAC: {e}. Tentative {attempt + 1}/{max_retries}...")
+                if attempt < max_retries - 1:
+                    time.sleep(5 * (attempt + 1))
+                else:
+                    LOGGER.error(f"   ❌ Échec de la recherche STAC après {max_retries} tentatives.")
+            except Exception as e:
+                LOGGER.error(f"   ❌ Erreur inattendue lors de la recherche: {e}")
+                break
+                
+        if mes_items is None:
+            continue
         
         # Signer les URLs pour éviter l'expiration
         planetary_computer.sign_inplace(mes_items)
