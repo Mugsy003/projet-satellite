@@ -176,6 +176,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     y_pred_verif = lst_verif_90m.flatten()
     masque_verif = np.isfinite(y_true_verif) & np.isfinite(y_pred_verif)
 
+    rmse_energie_final = np.nan
     if np.sum(masque_verif) > 0:
         rmse_energie_final = np.sqrt(mean_squared_error(y_true_verif[masque_verif], y_pred_verif[masque_verif]))
         # Note : Avec l'interpolation, le RMSE ne sera pas strictement 0.0000000 mais restera 

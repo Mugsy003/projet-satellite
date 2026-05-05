@@ -47,9 +47,17 @@ env_sr4rs/
 
 # Project-specific large files and outputs
 Outputs/
+Outputs_ICOS/
 Previews_Landsat/
 Models/Saved_Weights/
 Models/sr4rs_model/
+deep_learning/*.csv
+donnees_Gol/
+donnees_pays.csv
+donnees_lamasquere_*.csv
+temperatures_*.csv
+valeurs_temperatures_*.csv
+scratch_columns.txt
 
 # Temporary files
 *.tmp
