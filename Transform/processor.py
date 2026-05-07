@@ -88,7 +88,7 @@ def process_satellite_timeseries(mes_items, bbox, bands_of_interest, max_jours_f
                 LOGGER.info(f"      ❌ REJETÉE : Qualité spatiale insuffisante.")
                 continue
                 
-            elif couverture >= couverture_parfaite and clouds < 10: 
+            elif couverture >= couverture_parfaite: 
                 LOGGER.info(f"      ✅ PARFAITE : Conservée sans modification.")
                 indices_a_fusionner_local = [0]
                 etat = "Parfaite" 

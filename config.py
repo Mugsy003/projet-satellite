@@ -26,6 +26,7 @@ for directory in [OUTPUT_DIR, PREVIEWS_DIR]:
 # --- Constantes du Projet ---
 TIME_OF_INTEREST = "2024-08-31/2026-03-04"
 BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16"]
+BANDS_OF_INTEREST_S2 = ["B02", "B03", "B04", "B08", "B11", "SCL"]
 TIME_MARGIN_MINUTES = 20
 lt = 99
 ltd = 30
