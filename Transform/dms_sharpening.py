@@ -13,6 +13,8 @@ from config import SITES_PILOTES, LOGGER
 
 # --- CONFIGURATION BASE ---
 DOSSIER_BASE = r"Outputs"
+n_estimators=200
+max_depth=30
 
 def aggregate_3x3(matrice_2d):
     """Regroupe les pixels par blocs de 3x3 et calcule la moyenne.
@@ -111,7 +113,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         X_train_90m, y_train_90m, test_size=0.2, random_state=42
     )
 
-    modele = RandomForestRegressor(n_estimators=50, max_depth=15, random_state=42, n_jobs=-1)
+    modele = RandomForestRegressor(n_estimators=n_estimators, random_state=42, n_jobs=-1)
     modele.fit(X_train, y_train)
 
     LOGGER.info("   🏆 Classement des indices :")

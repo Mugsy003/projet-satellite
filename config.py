@@ -24,7 +24,7 @@ for directory in [OUTPUT_DIR, PREVIEWS_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # --- Constantes du Projet ---
-TIME_OF_INTEREST = "2024-11-28/2026-03-04"
+TIME_OF_INTEREST = "2024-08-31/2026-03-04"
 BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16"]
 TIME_MARGIN_MINUTES = 20
 lt = 99
@@ -52,7 +52,7 @@ SITES_PILOTES = {
 
 
 PIDS_ICOS = {
-    "Lamasquere": 'f_bXbunL87WBKYsV_-NRn_dR',
+    "Lamasquere": 'wAacHZyZSqZyntBZDMZJ5wf3',
     "Lonzee": 'vPBrbj9zKYuJlfpC4te4EasK ',  
     "Gebesee": 'oTVsuExSqsHFTRiBOf1HnKl6',
     "Voulundgaard": 'fEpEBISGMjpKEX4AQNzC3OGY', 
