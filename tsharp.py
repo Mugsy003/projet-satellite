@@ -160,7 +160,7 @@ def process_tsharp_for_image(nom_site, date_str, dossier_indices):
     """Exécute l'algorithme TsHARP."""
     LOGGER.info(f"\n   📅 Traitement de l'image du {date_str} (Méthode TsHARP)...")
 
-    fichier_thermique = os.path.join(dossier_indices, f"{date_str}_{nom_site}_LST.tif")
+    fichier_thermique = os.path.join(dossier_indices, f"{date_str}_{nom_site}_Thermique_B10.tif")
     fichier_ndvi = os.path.join(dossier_indices, f"{date_str}_{nom_site}_NDVI.tif")
     fichier_sortie = os.path.join(dossier_indices, f"{date_str}_{nom_site}_LST_Sharpened_TsHARP.tif")
     fichier_comparaison = os.path.join(dossier_indices, f"{date_str}_{nom_site}_Comparaison_TsHARP.png")
@@ -244,7 +244,7 @@ def main():
         if not os.path.exists(dossier_indices):
             continue
             
-        fichiers_thermiques = glob.glob(os.path.join(dossier_indices, f"*_{nom_site}_LST.tif"))
+        fichiers_thermiques = glob.glob(os.path.join(dossier_indices, f"*_{nom_site}_Thermique_B10.tif"))
         
         for chemin_fichier in fichiers_thermiques:
             nom_fichier = os.path.basename(chemin_fichier)

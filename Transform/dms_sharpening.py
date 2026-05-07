@@ -13,8 +13,8 @@ from config import SITES_PILOTES, LOGGER
 
 # --- CONFIGURATION BASE ---
 DOSSIER_BASE = r"Outputs"
-n_estimators=200
-max_depth=30
+n_estimators=100
+max_depth=10
 
 def aggregate_3x3(matrice_2d):
     """Regroupe les pixels par blocs de 3x3 et calcule la moyenne.
@@ -40,7 +40,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     """Exécute l'algorithme DMS rigoureux (Apprentissage à 90m, Inférence à 30m)."""
     LOGGER.info(f"\n   📅 Traitement de l'image du {date_str} (Méthode Rigoureuse)...")
 
-    fichier_thermique = os.path.join(dossier_indices, f"{date_str}_{nom_site}_LST.tif")
+    fichier_thermique = os.path.join(dossier_indices, f"{date_str}_{nom_site}_Thermique_B10.tif")
     fichier_sortie = os.path.join(dossier_indices, f"{date_str}_{nom_site}_LST_Sharpened_DMS.tif")
     fichier_comparaison = os.path.join(dossier_indices, f"{date_str}_{nom_site}_Comparaison_DMS.png")
 
@@ -113,7 +113,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         X_train_90m, y_train_90m, test_size=0.2, random_state=42
     )
 
-    modele = RandomForestRegressor(n_estimators=n_estimators, random_state=42, n_jobs=-1)
+    modele = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42, n_jobs=-1)
     modele.fit(X_train, y_train)
 
     LOGGER.info("   🏆 Classement des indices :")
@@ -234,7 +234,7 @@ def main():
         if not os.path.exists(dossier_indices):
             continue
             
-        fichiers_thermiques = glob.glob(os.path.join(dossier_indices, f"*_{nom_site}_LST.tif"))
+        fichiers_thermiques = glob.glob(os.path.join(dossier_indices, f"*_{nom_site}_Thermique_B10.tif"))
         
         for chemin_fichier in fichiers_thermiques:
             nom_fichier = os.path.basename(chemin_fichier)

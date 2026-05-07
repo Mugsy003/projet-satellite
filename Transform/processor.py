@@ -119,10 +119,13 @@ def process_satellite_timeseries(mes_items, bbox, bands_of_interest, max_jours_f
             swir_ref = landsat_dn_to_reflectance(mosaic_data["swir16"].values)
 
             thermal_dn = mosaic_data["lwir11"].values
-            bt_kelvin = (thermal_dn * 0.00341802) + 149.0
-            img_thermique_celsius = bt_kelvin - 273.15
+            # Attention: dans Landsat C2 L2, la bande thermique est déjà corrigée en Surface Temperature (LST)
+            lst_kelvin = (thermal_dn * 0.00341802) + 149.0
+            img_thermique_celsius = lst_kelvin - 273.15
             ndvi_array = indices.calculate_ndvi(red_ref, nir_ref)
-            lst_array = indices.calculate_lst_step_by_step(bt_kelvin, ndvi_array)
+            
+            # Suppression de la double correction d'émissivité
+            lst_array = img_thermique_celsius
             
             empreinte_transform = mosaic_data.odc.geobox.transform
             empreinte_crs = mosaic_data.odc.geobox.crs.to_wkt()
