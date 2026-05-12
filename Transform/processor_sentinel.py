@@ -5,11 +5,6 @@ import Transform.indices as indices
 from Utils import filtre_median_inteligent
 from config import LOGGER
 
-def calcul_couverture_s2(ds_time):
-    total_pixels = ds_time.B04.size
-    pixels_valides = np.count_nonzero(~np.isnan(ds_time.B04.values) & (ds_time.B04.values > 0))
-    return (pixels_valides / total_pixels) * 100
-
 def get_s2_mask(scl_array):
     """
     Crée un masque valide à partir de la couche SCL de Sentinel-2.
@@ -74,8 +69,15 @@ def process_s2_timeseries(mes_items, bbox, bands_of_interest, max_jours_fusion=3
             # Résolution de 10m forcée pour Sentinel-2
             local_cube = odc.stac.stac_load(items_a_charger, bands=bands_of_interest, bbox=bbox, chunks={}, resolution=10)
             
-            couverture = calcul_couverture_s2(local_cube.isel(time=0))
-            LOGGER.info(f"      📊 Couverture réelle calculée : {couverture:.1f}%")
+            anchor_cube = local_cube.isel(time=0)
+            anchor_mask = get_s2_mask(anchor_cube["SCL"].values)
+            
+            # La couverture réelle est le % de pixels qui sont à la fois dans l'image (>0) ET clairs (anchor_mask)
+            total_pixels = anchor_cube["B04"].size
+            pixels_valides = np.count_nonzero((anchor_cube["B04"].values > 0) & anchor_mask)
+            couverture = (pixels_valides / total_pixels) * 100
+            
+            LOGGER.info(f"      📊 Couverture claire et réelle calculée localement : {couverture:.1f}%")
             
             if couverture < min_couv_rejet:
                 LOGGER.info(f"      ❌ REJETÉE : Qualité spatiale insuffisante.")

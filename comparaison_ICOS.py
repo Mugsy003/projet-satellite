@@ -6,6 +6,7 @@ import numpy as np
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 from pyproj import Transformer
+# pyrefly: ignore [missing-import]
 from icoscp.dobj import Dobj 
 from config import SITES_PILOTES, PIDS_ICOS, TIME_OF_INTEREST, TIME_MARGIN_MINUTES
 
@@ -45,7 +46,7 @@ for site, coords in SITES_PILOTES.items():
     df_icos = None
 
     # --- A. Chargement des données Deep Learning et ICOS ---
-    dl_file = os.path.join("deep_learning", f"stress_hydrique_{site.lower()}.csv")
+    dl_file = os.path.join("deep_learning2", f"stress_hydrique_{site.lower()}.csv")
     df_dl = None
     if os.path.exists(dl_file):
         df_dl = pd.read_csv(dl_file)
@@ -81,10 +82,9 @@ for site, coords in SITES_PILOTES.items():
             df_icos['LW_IN_Consolide'] = df_icos[lw_in_cols].bfill(axis=1).iloc[:, 0] if lw_in_cols else np.nan
             df_icos['LW_OUT_Consolide'] = df_icos[lw_out_cols].bfill(axis=1).iloc[:, 0] if lw_out_cols else np.nan
 
-            # Calcul de la LST
+            # Le calcul de LST_Calculee est différé dans la boucle TIF
+            # afin d'utiliser une émissivité dynamique basée sur le NDVI du pixel.
             sigma = 5.67e-8
-            emissivite = 0.98
-            df_icos['LST_Calculee'] = ((df_icos['LW_OUT_Consolide'] - (1 - emissivite) * df_icos['LW_IN_Consolide']) / (emissivite * sigma))**0.25 - 273.15
             
         except Exception as e:
             print(f"❌ Erreur ICOS pour {site} : {e}")
@@ -103,9 +103,9 @@ for site, coords in SITES_PILOTES.items():
         target_dt = extract_datetime_from_filename(f)
         if not target_dt: continue
         
-        # Vérifier si la date est dans la période configurée
-        if not (start_date <= target_dt <= end_date):
-            continue
+        # On ne filtre plus par rapport à TIME_OF_INTEREST pour pouvoir analyser toutes les images téléchargées
+        # if not (start_date <= target_dt <= end_date):
+        #     continue
 
         print(f"   🔍 Analyse satellite du {target_dt}...")
 
@@ -122,6 +122,10 @@ for site, coords in SITES_PILOTES.items():
             path_lst_dms = os.path.join(tif_folder, f)
             # Chemin LST TsHARP
             path_lst_tsharp = path_lst_dms.replace("LST_Sharpened_DMS", "LST_Sharpened_TsHARP")
+            # Chemin LST DMS Fusion
+            path_lst_dms_fusion = path_lst_dms.replace("LST_Sharpened_DMS", "LST_Sharpened_DMS_Fusion")
+            # Chemin LST TsHARP Fusion
+            path_lst_tsharp_fusion = path_lst_dms.replace("LST_Sharpened_DMS", "LST_Sharpened_TsHARP_Fusion")
             
             # Chemin NDVI et B10
             path_ndvi = path_lst_dms.replace("LST_Sharpened_DMS", "NDVI")
@@ -143,12 +147,48 @@ for site, coords in SITES_PILOTES.items():
             else:
                 lst_sat_tsharp = np.nan
 
+            # Valeur LST DMS Fusion (10m - grille S2 differente, besoin d'un nouveau transformer)
+            lst_sat_dms_fusion = np.nan
+            if os.path.exists(path_lst_dms_fusion):
+                rds_fusion = rioxarray.open_rasterio(path_lst_dms_fusion)
+                tf_fusion = Transformer.from_crs("EPSG:4326", rds_fusion.rio.crs, always_xy=True)
+                xf, yf = tf_fusion.transform(coords["lon"], coords["lat"])
+                pv = rds_fusion.sel(x=xf, y=yf, method="nearest").values[0]
+                lst_sat_dms_fusion = pv - 273.15 if pv > 200 else pv
+
+            # Valeur LST TsHARP Fusion (10m)
+            lst_sat_tsharp_fusion = np.nan
+            if os.path.exists(path_lst_tsharp_fusion):
+                rds_fusion_ts = rioxarray.open_rasterio(path_lst_tsharp_fusion)
+                tf_fusion_ts = Transformer.from_crs("EPSG:4326", rds_fusion_ts.rio.crs, always_xy=True)
+                xft, yft = tf_fusion_ts.transform(coords["lon"], coords["lat"])
+                pvt = rds_fusion_ts.sel(x=xft, y=yft, method="nearest").values[0]
+                lst_sat_tsharp_fusion = pvt - 273.15 if pvt > 200 else pvt
+
             # Valeur NDVI
             if os.path.exists(path_ndvi):
                 rds_ndvi = rioxarray.open_rasterio(path_ndvi)
                 ndvi_sat = rds_ndvi.sel(x=x_p, y=y_p, method="nearest").values[0]
             else:
                 ndvi_sat = np.nan
+
+            # --- Émissivité dynamique basée sur le NDVI ---
+            # fraction_vegetation selon la méthode de Sobrino et al.
+            NDVI_SOL = 0.2   # NDVI typique d'un sol nu
+            NDVI_VEG = 0.86  # NDVI typique d'une végétation dense
+            if pd.notna(ndvi_sat):
+                fv = ((ndvi_sat - NDVI_SOL) / (NDVI_VEG - NDVI_SOL)) ** 2
+                fraction_vegetation = float(np.clip(fv, 0.0, 1.0))
+            else:
+                fraction_vegetation = 0.5  # valeur par défaut si NDVI indisponible
+            emissivite_dynamique = 0.9332 + 0.0585 * fraction_vegetation
+
+            # Recalcul de LST_Calculee ICOS avec l'émissivité dynamique
+            if df_icos is not None:
+                df_icos['LST_Calculee'] = (
+                    (df_icos['LW_OUT_Consolide'] - (1 - emissivite_dynamique) * df_icos['LW_IN_Consolide'])
+                    / (emissivite_dynamique * sigma)
+                ) ** 0.25 - 273.15
             # Valeur B10
             if os.path.exists(path_B10):
                 rds_B10 = rioxarray.open_rasterio(path_B10)
@@ -159,10 +199,12 @@ for site, coords in SITES_PILOTES.items():
         except Exception:
             lst_sat_dms = np.nan
             lst_sat_tsharp = np.nan
+            lst_sat_dms_fusion = np.nan
+            lst_sat_tsharp_fusion = np.nan
             ndvi_sat = np.nan
             b10_sat = np.nan
 
-        if pd.isna(lst_sat_dms) and pd.isna(lst_sat_tsharp):
+        if pd.isna(lst_sat_dms) and pd.isna(lst_sat_tsharp) and pd.isna(lst_sat_dms_fusion) and pd.isna(lst_sat_tsharp_fusion):
             continue
 
         # 2. Recherche ICOS avec Marge de Tolérance
@@ -189,19 +231,40 @@ for site, coords in SITES_PILOTES.items():
             else:
                 print(f"      ⚠️ Aucune donnée ICOS trouvée dans une marge de +/- {TIME_MARGIN_MINUTES} min.")
 
-        # 3. Recherche GOL (Terrain)
-        temp_gol = np.nan
+        # 3. Recherche GOL (Terrain) - On extrait TSOIL et TAIR separement
+        # car Landsat mesure la temperature de SURFACE (skin temperature),
+        # et ni Tsoil (enterre) ni Tair (2m au-dessus) n'est un proxy parfait.
+        # On garde les deux pour comparer empiriquement.
+        temp_gol_tsoil = np.nan
+        temp_gol_tair = np.nan
         heure_gol = target_dt
         if df_gol is not None:
             diff_temps_gol = abs(df_gol['created_date'] - target_dt)
             masque_gol = diff_temps_gol <= pd.Timedelta(minutes=TIME_MARGIN_MINUTES)
             if not df_gol[masque_gol].empty:
                 idx_gol = diff_temps_gol[masque_gol].idxmin()
-                temp_gol = df_gol.loc[idx_gol, 'field_tair_c_avg']
                 heure_gol = df_gol.loc[idx_gol, 'created_date']
+                
+                # Tair (air a 2m)
+                if 'field_tair_c_avg' in df_gol.columns:
+                    temp_gol_tair = df_gol.loc[idx_gol, 'field_tair_c_avg']
+                
+                # Tsoil (sonde la moins profonde disponible)
+                tsoil_priority = ['field_tsoil_a_10_avg', 'field_tsoil_a_20_avg', 'field_tsoil_a_25_avg']
+                for col_tsoil in tsoil_priority:
+                    if col_tsoil in df_gol.columns:
+                        val = df_gol.loc[idx_gol, col_tsoil]
+                        if pd.notna(val) and val > -30:
+                            temp_gol_tsoil = val
+                            break
+        
+        # On utilise Tair comme valeur GOL par defaut (plus courant dans la litterature)
+        temp_gol = temp_gol_tair if pd.notna(temp_gol_tair) else temp_gol_tsoil
 
         biais_dms = abs(lst_sat_dms - lst_ground) if pd.notna(lst_sat_dms) and pd.notna(lst_ground) else np.nan
         biais_tsharp = abs(lst_sat_tsharp - lst_ground) if pd.notna(lst_sat_tsharp) and pd.notna(lst_ground) else np.nan
+        biais_dms_fusion = abs(lst_sat_dms_fusion - lst_ground) if pd.notna(lst_sat_dms_fusion) and pd.notna(lst_ground) else np.nan
+        biais_tsharp_fusion = abs(lst_sat_tsharp_fusion - lst_ground) if pd.notna(lst_sat_tsharp_fusion) and pd.notna(lst_ground) else np.nan
         biais_dl = abs(lst_sat_dl - lst_ground) if pd.notna(lst_sat_dl) and pd.notna(lst_ground) else np.nan
         
         biais_dms_dl = abs(lst_sat_dms - lst_sat_dl) if pd.notna(lst_sat_dms) and pd.notna(lst_sat_dl) else np.nan
@@ -209,6 +272,8 @@ for site, coords in SITES_PILOTES.items():
 
         biais_dms_gol = abs(lst_sat_dms - temp_gol) if pd.notna(lst_sat_dms) and pd.notna(temp_gol) else np.nan
         biais_tsharp_gol = abs(lst_sat_tsharp - temp_gol) if pd.notna(lst_sat_tsharp) and pd.notna(temp_gol) else np.nan
+        biais_dms_fusion_gol = abs(lst_sat_dms_fusion - temp_gol) if pd.notna(lst_sat_dms_fusion) and pd.notna(temp_gol) else np.nan
+        biais_tsharp_fusion_gol = abs(lst_sat_tsharp_fusion - temp_gol) if pd.notna(lst_sat_tsharp_fusion) and pd.notna(temp_gol) else np.nan
         biais_dl_gol = abs(lst_sat_dl - temp_gol) if pd.notna(lst_sat_dl) and pd.notna(temp_gol) else np.nan
 
         resultats_globaux.append({
@@ -220,25 +285,35 @@ for site, coords in SITES_PILOTES.items():
             "Decalage_Temporel (min)": round(decalage_min, 1) if pd.notna(lst_ground) else "N/A",
             "LST_Sat_DMS (°C)": round(lst_sat_dms, 2) if pd.notna(lst_sat_dms) else "N/A",
             "LST_Sat_TsHARP (°C)": round(lst_sat_tsharp, 2) if pd.notna(lst_sat_tsharp) else "N/A",
+            "LST_Sat_DMS_Fusion (°C)": round(lst_sat_dms_fusion, 2) if pd.notna(lst_sat_dms_fusion) else "N/A",
+            "LST_Sat_TsHARP_Fusion (°C)": round(lst_sat_tsharp_fusion, 2) if pd.notna(lst_sat_tsharp_fusion) else "N/A",
             "LST_Sat_DL (°C)": round(lst_sat_dl, 2) if pd.notna(lst_sat_dl) else "N/A",
             "ICOS_LST (°C)": round(lst_ground, 2) if pd.notna(lst_ground) else "N/A",
             "Temperature_GOL (°C)": round(temp_gol, 2) if pd.notna(temp_gol) else "N/A",
+            "Tsoil_GOL (°C)": round(temp_gol_tsoil, 2) if pd.notna(temp_gol_tsoil) else "N/A",
+            "Tair_GOL (°C)": round(temp_gol_tair, 2) if pd.notna(temp_gol_tair) else "N/A",
             "B10s (°C)": round(b10_sat, 2) if pd.notna(b10_sat) else "N/A",
             "Biais_DMS_vs_ICOS (°C)": round(biais_dms, 2) if pd.notna(biais_dms) else "N/A",
             "Biais_TsHARP_vs_ICOS (°C)": round(biais_tsharp, 2) if pd.notna(biais_tsharp) else "N/A",
+            "Biais_DMS_Fusion_vs_ICOS (°C)": round(biais_dms_fusion, 2) if pd.notna(biais_dms_fusion) else "N/A",
+            "Biais_TsHARP_Fusion_vs_ICOS (°C)": round(biais_tsharp_fusion, 2) if pd.notna(biais_tsharp_fusion) else "N/A",
             "Biais_DL_vs_ICOS (°C)": round(biais_dl, 2) if pd.notna(biais_dl) else "N/A",
             "Biais_DMS_vs_GOL (°C)": round(biais_dms_gol, 2) if pd.notna(biais_dms_gol) else "N/A",
             "Biais_TsHARP_vs_GOL (°C)": round(biais_tsharp_gol, 2) if pd.notna(biais_tsharp_gol) else "N/A",
+            "Biais_DMS_Fusion_vs_GOL (°C)": round(biais_dms_fusion_gol, 2) if pd.notna(biais_dms_fusion_gol) else "N/A",
+            "Biais_TsHARP_Fusion_vs_GOL (°C)": round(biais_tsharp_fusion_gol, 2) if pd.notna(biais_tsharp_fusion_gol) else "N/A",
             "Biais_DL_vs_GOL (°C)": round(biais_dl_gol, 2) if pd.notna(biais_dl_gol) else "N/A",
         })
         
         if pd.notna(lst_ground):
-            dl_str = f" | Biais DL: {biais_dl:.2f}°C" if pd.notna(biais_dl) else ""
-            tsharp_str = f" | Biais TsHARP: {biais_tsharp:.2f}°C" if pd.notna(biais_tsharp) else ""
-            print(f"      ✅ Match ICOS à {heure_icos.strftime('%H:%M')} | Biais DMS: {biais_dms:.2f}°C{tsharp_str}{dl_str}")
+            dl_str = f" | Biais DL: {biais_dl:.2f}degC" if pd.notna(biais_dl) else ""
+            tsharp_str = f" | Biais TsHARP: {biais_tsharp:.2f}degC" if pd.notna(biais_tsharp) else ""
+            fusion_str = f" | DMS-Fus: {biais_dms_fusion:.2f}degC" if pd.notna(biais_dms_fusion) else ""
+            fusion_ts_str = f" | TsH-Fus: {biais_tsharp_fusion:.2f}degC" if pd.notna(biais_tsharp_fusion) else ""
+            print(f"      Match a {heure_icos.strftime('%H:%M')} | Biais DMS: {biais_dms:.2f}degC{tsharp_str}{fusion_str}{fusion_ts_str}{dl_str}")
         else:
-            dl_str = f" | Biais DMS vs DL: {biais_dms_dl:.2f}°C" if pd.notna(biais_dms_dl) else ""
-            print(f"      ✅ Extraction Sat réussie (Pas d'ICOS){dl_str}")
+            dl_str = f" | Biais DMS vs DL: {biais_dms_dl:.2f}degC" if pd.notna(biais_dms_dl) else ""
+            print(f"      Extraction Sat reussie (Pas d'ICOS){dl_str}")
 
 # ==========================================
 # 3. SYNTHÈSE ET SAUVEGARDE
@@ -255,3 +330,5 @@ if resultats_globaux:
     print(f"\n💾 Résultats sauvegardés dans : {chemin_csv}")
 else:
     print(f"\n⚠️ Aucune coïncidence trouvée entre les TIFs et ICOS (Tolérance: {TIME_MARGIN_MINUTES} min).")
+
+

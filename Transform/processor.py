@@ -79,9 +79,15 @@ def process_satellite_timeseries(mes_items, bbox, bands_of_interest, max_jours_f
             # chunks={} force le téléchargement direct en mémoire sans Dask, évitant les timeouts
             local_cube = odc.stac.stac_load(items_a_charger, bands=bands_of_interest, bbox=bbox, chunks={})
             
-            # L'image "ancre" (celle du jour évalué) est TOUJOURS à l'index temporel 0 dans ce petit cube
-            couverture = calcul_couverture(local_cube.isel(time=0))
-            LOGGER.info(f"      📊 Couverture réelle calculée : {couverture:.1f}%")
+            # Évaluation locale de la couverture
+            anchor_cube = local_cube.isel(time=0)
+            anchor_mask = get_landsat_mask(anchor_cube["qa_pixel"])
+            
+            total_pixels = anchor_cube["red"].size
+            pixels_valides = np.count_nonzero((anchor_cube["red"].values > 0) & anchor_mask)
+            couverture = (pixels_valides / total_pixels) * 100
+            
+            LOGGER.info(f"      📊 Couverture claire et réelle calculée localement : {couverture:.1f}%")
             
             # --- DÉCISION FINALE ---
             if couverture < min_couv_rejet:

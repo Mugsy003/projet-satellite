@@ -35,6 +35,46 @@ def load_raster_as_2d(filepath):
     }
     array_2d = ds.values.squeeze()
     return array_2d, profile
+def calculate_homogeneity_mask(X_dict_30m, threshold=0.20):
+    """
+    Évalue la variance interne des pixels 30m au sein de leur pixel parent de 90m.
+    Retourne un masque booléen 1D : True = Homogène (pur), False = Hétérogène (mixte).
+    """
+    # 1. On récupère les dimensions (mutliples de 3)
+    premiere_matrice = list(X_dict_30m.values())[0]
+    h, w = premiere_matrice.shape
+    h_new, w_new = (h // 3) * 3, (w // 3) * 3
+    
+    # Matrice pour cumuler le coefficient de variation (cv) de toutes les bandes
+    cv_total = np.zeros((h_new // 3, w_new // 3))
+    nb_features = len(X_dict_30m)
+    
+    for nom, matrice_30m in X_dict_30m.items():
+        matrice_coupee = matrice_30m[:h_new, :w_new]
+        
+        # Astuce Numpy : On reshape pour isoler mathématiquement les blocs de 3x3
+        blocs = matrice_coupee.reshape(h_new // 3, 3, w_new // 3, 3)
+        
+        # Calcul de la moyenne (mu) et de l'écart-type (sigma) interne de chaque bloc 3x3
+        mu = blocs.mean(axis=(1, 3))
+        sigma = blocs.std(axis=(1, 3))
+        
+        # Calcul du coefficient de variation (cv = sigma / mu)
+        # On ajoute 1e-8 pour éviter de diviser par zéro si la moyenne est nulle (ex: masques d'eau)
+        cv = sigma / (np.abs(mu) + 1e-8)
+        
+        # On cumule les cv
+        cv_total += cv
+        
+    # 2. Moyenne des cv sur toutes les bandes (prédicteurs)
+    cv_moyen = cv_total / nb_features
+    
+    # 3. Création du masque final
+    # Un pixel est conservé (True) si sa variation est inférieure à 20% (0.20)
+    masque_homogene_2d = cv_moyen < threshold
+    
+    # On retourne le masque aplati en 1D pour qu'il s'aligne avec y_90m_1d
+    return masque_homogene_2d.flatten()
 
 def process_dms_for_image(nom_site, date_str, dossier_indices):
     """Exécute l'algorithme DMS rigoureux (Apprentissage à 90m, Inférence à 30m)."""
@@ -78,6 +118,16 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     if not X_dict_30m:
         LOGGER.error("   ❌ Aucun prédicteur trouvé. Annulation.")
         return
+
+    # --- L'ASTUCE SPATIALE DU RANDOM FOREST ---
+    # On crée deux matrices de la taille de l'image contenant les coordonnées X et Y
+    grille_y, grille_x = np.indices((h, w))
+    
+    # On ajoute ces matrices comme si c'étaient de "nouveaux indices satellites"
+    X_dict_30m['Coord_X'] = grille_x
+    X_dict_30m['Coord_Y'] = grille_y
+    # ------------------------------------------
+
     noms_features = list(X_dict_30m.keys())
 
     # ==========================================
@@ -94,18 +144,35 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         X_matrice_90m.append(pred_90m_2d.flatten())
     X_matrice_90m = np.column_stack(X_matrice_90m)
 
-    # Nettoyage des NaNs sur les données 90m
+    # 1. Nettoyage des NaNs (existant)
     masque_valide_90m = np.isfinite(y_90m_1d)
     for i in range(X_matrice_90m.shape[1]):
         masque_valide_90m &= np.isfinite(X_matrice_90m[:, i])
 
-    X_train_90m = X_matrice_90m[masque_valide_90m]
-    y_train_90m = y_90m_1d[masque_valide_90m]
+# --- NOUVEAUTÉ : Le filtrage par homogénéité ---
+    LOGGER.info("   🧹 Sélection des pixels d'entraînement (Seuil de pureté : < 20% de variance)...")
+    
+    # CORRECTION ICI : On crée un dictionnaire temporaire sans les coordonnées 
+    # pour ne pas fausser le calcul de la variance interne
+    X_dict_pour_masque = {k: v for k, v in X_dict_30m.items() if k not in ['Coord_X', 'Coord_Y']}
+    
+    # On calcule le masque uniquement sur les variables physiques
+    masque_homogene_1d = calculate_homogeneity_mask(X_dict_pour_masque, threshold=0.20)
+
+    # On combine les deux conditions : Le pixel doit être sans NaN ET homogène
+    masque_final_entrainement = masque_valide_90m & masque_homogene_1d
+    
+    nb_pixels_avant = np.sum(masque_valide_90m)
+    nb_pixels_apres = np.sum(masque_final_entrainement)
+    LOGGER.info(f"      -> Pixels exclus car trop hétérogènes : {nb_pixels_avant - nb_pixels_apres}")
+
+    # On applique le masque strict pour créer l'échantillon d'apprentissage
+    X_train_90m = X_matrice_90m[masque_final_entrainement]
+    y_train_90m = y_90m_1d[masque_final_entrainement]
 
     if len(y_train_90m) == 0:
-        LOGGER.error("   ❌ Données invalides à 90m (tous les pixels sont NaN).")
+        LOGGER.error("   ❌ Données invalides à 90m (tous les pixels sont NaN ou hétérogènes).")
         return
-
     # ==========================================
     # 3. ENTRAÎNEMENT DU MODÈLE (Sur le 90m !)
     # ==========================================
