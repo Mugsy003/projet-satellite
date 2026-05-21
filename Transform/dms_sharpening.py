@@ -213,6 +213,9 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     
     lst_sharpened_30m_2d = y_pred_total_30m_1d.reshape((h, w))
 
+    # Sauvegarder la version AVANT correction des résidus pour comparaison
+    lst_sharpened_avant_correction = lst_sharpened_30m_2d.copy()
+
     # =====================================================================
     # 🔍 ÉTAPE ULTIME : LA CORRECTION DES RÉSIDUS (BILAN D'ÉNERGIE ≈ 0.0)
     # =====================================================================
@@ -268,22 +271,34 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     LOGGER.info(f"   💾 TIF HD sauvegardé : {fichier_sortie}")
 
     # ==========================================
-    # 5. SAUVEGARDE VISUELLE (PNG)
+    # 5. SAUVEGARDE VISUELLE (PNG) - Comparaison 3 panneaux
     # ==========================================
-    plt.figure(figsize=(14, 7))
+    # Ajuster la version avant correction aux mêmes dimensions que la version corrigée
+    lst_avant_affichage = lst_sharpened_avant_correction[:h_new, :w_new]
+    masque_nan_avant = np.isnan(lst_30m_2d[:h_new, :w_new])
+    lst_avant_affichage[masque_nan_avant] = np.nan
+
+    fig, axes = plt.subplots(1, 3, figsize=(21, 7))
     
-    plt.subplot(1, 2, 1)
-    plt.imshow(lst_30m_2d, cmap='magma', vmin=10, vmax=50) 
-    plt.title("Avant : Thermique 100m (Interpolé NASA)", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Panneau 1 : Thermique original
+    im0 = axes[0].imshow(lst_30m_2d, cmap='magma', vmin=10, vmax=50)
+    axes[0].set_title("Thermique 100m (Interpolé NASA)", fontsize=13)
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    axes[0].axis('off')
 
-    plt.subplot(1, 2, 2)
-    plt.imshow(lst_sharpened_30m_2d, cmap='magma', vmin=10, vmax=50)
-    plt.title(f"Après : DMS (R²={r2:.2f}, Énergie RMSE={rmse_energie_final:.2f}°C)", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Panneau 2 : DMS SANS correction des résidus
+    im1 = axes[1].imshow(lst_avant_affichage, cmap='magma', vmin=10, vmax=50)
+    axes[1].set_title(f"DMS sans résidus (R²={r2:.2f})", fontsize=13)
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    axes[1].axis('off')
 
+    # Panneau 3 : DMS AVEC correction des résidus
+    im2 = axes[2].imshow(lst_sharpened_30m_2d_corrige, cmap='magma', vmin=10, vmax=50)
+    axes[2].set_title(f"DMS avec résidus (RMSE énergie={rmse_energie_final:.2f}°C)", fontsize=13)
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    axes[2].axis('off')
+
+    fig.suptitle(f"{nom_site} – {date_str} | Comparaison DMS", fontsize=15, fontweight='bold')
     plt.tight_layout()
     plt.savefig(fichier_comparaison, dpi=200, bbox_inches='tight')
     plt.close()

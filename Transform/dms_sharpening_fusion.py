@@ -252,6 +252,9 @@ def process_dms_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes,
     
     lst_sharpened_10m_2d = y_pred_10m_1d.reshape((h_s2, w_s2))
     
+    # Sauvegarder la version AVANT correction des résidus pour comparaison
+    lst_sharpened_avant_correction = lst_sharpened_10m_2d.copy()
+    
     # 8. Correction des residus (conservation d'energie)
     LOGGER.info("   Application de la Correction des Residus...")
     
@@ -291,22 +294,33 @@ def process_dms_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes,
     ds_out.rio.to_raster(fichier_sortie)
     LOGGER.info(f"   TIF HD 10m sauvegarde : {fichier_sortie}")
     
-    # 10. Sauvegarde visuelle PNG
-    plt.figure(figsize=(14, 7))
+    # 10. Sauvegarde visuelle PNG - Comparaison 3 panneaux
+    # Ajuster la version avant correction aux mêmes dimensions
+    lst_avant_affichage = lst_sharpened_avant_correction[:h_target, :w_target]
+    masque_nan_avant = np.isnan(lst_sharpened_10m_corrige)
+    lst_avant_affichage[masque_nan_avant] = np.nan
+
+    fig, axes = plt.subplots(1, 3, figsize=(21, 7))
     
-    plt.subplot(1, 2, 1)
-    plt.imshow(lst_landsat_2d, cmap='magma', vmin=10, vmax=50)
-    plt.title(f"Avant : Thermique Landsat 100m", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Panneau 1 : Thermique Landsat original
+    im0 = axes[0].imshow(lst_landsat_2d, cmap='magma', vmin=10, vmax=50)
+    axes[0].set_title("Thermique Landsat 100m", fontsize=13)
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    axes[0].axis('off')
     
-    plt.subplot(1, 2, 2)
-    plt.imshow(lst_sharpened_10m_corrige, cmap='magma', vmin=10, vmax=50)
-    plt.title(f"Apres : DMS Fusion 10m (R2={r2:.2f})", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Panneau 2 : DMS Fusion SANS résidus
+    im1 = axes[1].imshow(lst_avant_affichage, cmap='magma', vmin=10, vmax=50)
+    axes[1].set_title(f"DMS Fusion sans résidus (R2={r2:.2f})", fontsize=13)
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    axes[1].axis('off')
     
-    plt.suptitle(f"{nom_site} - {landsat_date_str} (Landsat+S2 delta={delta_minutes:.0f}min)", fontsize=16)
+    # Panneau 3 : DMS Fusion AVEC résidus
+    im2 = axes[2].imshow(lst_sharpened_10m_corrige, cmap='magma', vmin=10, vmax=50)
+    axes[2].set_title(f"DMS Fusion avec résidus (RMSE={rmse_energie:.2f}°C)", fontsize=13)
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    axes[2].axis('off')
+    
+    fig.suptitle(f"{nom_site} – {landsat_date_str} (Landsat+S2 delta={delta_minutes:.0f}min) | Comparaison DMS Fusion", fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(fichier_comparaison, dpi=200, bbox_inches='tight')
     plt.close()

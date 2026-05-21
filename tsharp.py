@@ -77,7 +77,7 @@ def predict_tsharp(
     fine_ndvi: np.ndarray,
     coefficients: np.ndarray | None = None,
     mask: np.ndarray | None = None,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     """Predict fine-resolution LST using TsHARP.
 
     Steps:
@@ -95,7 +95,8 @@ def predict_tsharp(
         mask: Optional boolean mask for fitting. True where pixels are valid.
 
     Returns:
-        Fine-resolution LST prediction (2D, same shape as fine_ndvi).
+        Tuple of (fine_predicted_with_residuals, fine_predicted_without_residuals),
+        both 2D arrays with same shape as fine_ndvi.
     """
     if coefficients is None:
         coefficients = fit_tsharp(coarse_lst, coarse_ndvi, mask=mask)
@@ -119,15 +120,17 @@ def predict_tsharp(
     )
     residual_interp = zoom(residual, zoom_factors, order=1)
 
-    # Predict fine-resolution LST
-    fine_predicted = (
+    # Predict fine-resolution LST (sans résidus)
+    fine_predicted_no_residual = (
         a * fine_ndvi.astype(np.float64) ** 2
         + b * fine_ndvi.astype(np.float64)
         + c
-        + residual_interp
     )
 
-    return fine_predicted.astype(np.float32)
+    # Predict fine-resolution LST (avec résidus)
+    fine_predicted = fine_predicted_no_residual + residual_interp
+
+    return fine_predicted.astype(np.float32), fine_predicted_no_residual.astype(np.float32)
 
 import os
 import glob
@@ -189,7 +192,7 @@ def process_tsharp_for_image(nom_site, date_str, dossier_indices):
         # on peut remplacer temporairement les NaNs de lst_90m_2d par la moyenne ou 0
         # Mais on laisse predict_tsharp faire son travail pour le moment.
         # Si un warning intervient, il sera intercepté.
-        lst_sharpened_30m_2d = predict_tsharp(
+        lst_sharpened_30m_2d, lst_sans_residus_30m_2d = predict_tsharp(
             coarse_lst=np.nan_to_num(lst_90m_2d, nan=np.nanmean(lst_90m_2d)),
             coarse_ndvi=np.nan_to_num(ndvi_90m_2d, nan=np.nanmean(ndvi_90m_2d)),
             fine_ndvi=np.nan_to_num(ndvi_30m_2d, nan=np.nanmean(ndvi_30m_2d)),
@@ -201,10 +204,29 @@ def process_tsharp_for_image(nom_site, date_str, dossier_indices):
 
     # Ajuster la taille finale car zoom(..., zoom_factors) peut donner des tailles légèrement différentes
     lst_sharpened_30m_2d = lst_sharpened_30m_2d[:h, :w]
+    lst_sans_residus_30m_2d = lst_sans_residus_30m_2d[:h, :w]
 
     # Remettre les NaNs là où ils étaient
     masque_nan = np.isnan(lst_30m_2d)
     lst_sharpened_30m_2d[masque_nan] = np.nan
+    lst_sans_residus_30m_2d[masque_nan] = np.nan
+
+    # --- Calcul du RMSE de conservation d'énergie ---
+    from sklearn.metrics import mean_squared_error
+    # RMSE SANS résidus : on agrège la prédiction sans résidus à 90m et on compare
+    lst_sans_res_agg_90m = aggregate_3x3(np.nan_to_num(lst_sans_residus_30m_2d, nan=np.nanmean(lst_sans_residus_30m_2d)))
+    y_true_90m = lst_90m_2d.flatten()
+    y_pred_sans_res_90m = lst_sans_res_agg_90m.flatten()
+    masque_v1 = np.isfinite(y_true_90m) & np.isfinite(y_pred_sans_res_90m)
+    rmse_sans_residus = np.sqrt(mean_squared_error(y_true_90m[masque_v1], y_pred_sans_res_90m[masque_v1])) if np.sum(masque_v1) > 0 else np.nan
+
+    # RMSE AVEC résidus : on agrège la prédiction avec résidus à 90m et on compare
+    lst_avec_res_agg_90m = aggregate_3x3(np.nan_to_num(lst_sharpened_30m_2d, nan=np.nanmean(lst_sharpened_30m_2d)))
+    y_pred_avec_res_90m = lst_avec_res_agg_90m.flatten()
+    masque_v2 = np.isfinite(y_true_90m) & np.isfinite(y_pred_avec_res_90m)
+    rmse_avec_residus = np.sqrt(mean_squared_error(y_true_90m[masque_v2], y_pred_avec_res_90m[masque_v2])) if np.sum(masque_v2) > 0 else np.nan
+
+    LOGGER.info(f"   ⚖️  RMSE Conservation d'Énergie : Sans résidus={rmse_sans_residus:.3f}°C | Avec résidus={rmse_avec_residus:.3f}°C")
 
     # Sauvegarde TIF
     ds_base = rioxarray.open_rasterio(fichier_thermique)
@@ -213,20 +235,28 @@ def process_tsharp_for_image(nom_site, date_str, dossier_indices):
     ds_out.rio.to_raster(fichier_sortie)
     LOGGER.info(f"   💾 TIF HD TsHARP sauvegardé : {fichier_sortie}")
 
-    # Sauvegarde visuelle PNG
-    plt.figure(figsize=(14, 7))
-    plt.subplot(1, 2, 1)
-    plt.imshow(lst_30m_2d, cmap='magma', vmin=10, vmax=50) 
-    plt.title("Avant : Thermique 100m (Interpolé NASA)", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Sauvegarde visuelle PNG - Comparaison 3 panneaux
+    fig, axes = plt.subplots(1, 3, figsize=(21, 7))
 
-    plt.subplot(1, 2, 2)
-    plt.imshow(lst_sharpened_30m_2d, cmap='magma', vmin=10, vmax=50)
-    plt.title("Après : TsHARP", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Panneau 1 : Thermique original
+    im0 = axes[0].imshow(lst_30m_2d, cmap='magma', vmin=10, vmax=50)
+    axes[0].set_title("Thermique 100m (Interpolé NASA)", fontsize=13)
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    axes[0].axis('off')
 
+    # Panneau 2 : TsHARP SANS correction des résidus
+    im1 = axes[1].imshow(lst_sans_residus_30m_2d, cmap='magma', vmin=10, vmax=50)
+    axes[1].set_title(f"TsHARP sans résidus (RMSE={rmse_sans_residus:.2f}°C)", fontsize=13)
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    axes[1].axis('off')
+
+    # Panneau 3 : TsHARP AVEC correction des résidus
+    im2 = axes[2].imshow(lst_sharpened_30m_2d, cmap='magma', vmin=10, vmax=50)
+    axes[2].set_title(f"TsHARP avec résidus (RMSE={rmse_avec_residus:.2f}°C)", fontsize=13)
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    axes[2].axis('off')
+
+    fig.suptitle(f"{nom_site} – {date_str} | Comparaison TsHARP", fontsize=15, fontweight='bold')
     plt.tight_layout()
     plt.savefig(fichier_comparaison, dpi=200, bbox_inches='tight')
     plt.close()

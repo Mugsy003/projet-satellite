@@ -107,23 +107,33 @@ def process_s2_timeseries(mes_items, bbox, bands_of_interest, max_jours_fusion=3
                 cube_a_traiter_final = cube_a_traiter_brut.isel(time=0)
                 qa_mask_final = qa_mask if qa_mask.ndim == 2 else qa_mask[0]
 
+            # Fonction de conversion DN vers Réflectance Sentinel-2
+            def get_s2_reflectance(dn_array):
+                baseline = anchor_item.properties.get("s2:processing_baseline", "01.00")
+                is_new = False
+                try:
+                    if float(baseline) >= 4.00:
+                        is_new = True
+                except (ValueError, TypeError):
+                    pass
+                offset = 1000.0 if is_new else 0.0
+                
+                # Ignorer les NoData (0) et les NaN
+                dn_safe = np.where((dn_array > 0) & (~np.isnan(dn_array)), dn_array, np.nan)
+                return (dn_safe - offset) / 10000.0
+
             # Extraction des données raw (sans mask) pour l'image brute, toujours basée sur l'ancre (time=0)
             anchor_cube = cube_a_traiter_brut.isel(time=0)
-            raw_red = anchor_cube["B04"].values / 10000.0
-            raw_green = anchor_cube["B03"].values / 10000.0
-            raw_blue = anchor_cube["B02"].values / 10000.0
-
-            # Remplace les 0.0 (nodata S2) par des NaN pour ne pas fausser l'étirement des couleurs
-            raw_red = np.where(raw_red == 0.0, np.nan, raw_red)
-            raw_green = np.where(raw_green == 0.0, np.nan, raw_green)
-            raw_blue = np.where(raw_blue == 0.0, np.nan, raw_blue)
+            raw_red = get_s2_reflectance(anchor_cube["B04"].values)
+            raw_green = get_s2_reflectance(anchor_cube["B03"].values)
+            raw_blue = get_s2_reflectance(anchor_cube["B02"].values)
 
             # Extraction des données traitées
-            red = np.where(qa_mask_final, cube_a_traiter_final["B04"].values / 10000.0, np.nan)
-            green = np.where(qa_mask_final, cube_a_traiter_final["B03"].values / 10000.0, np.nan)
-            blue = np.where(qa_mask_final, cube_a_traiter_final["B02"].values / 10000.0, np.nan)
-            nir = np.where(qa_mask_final, cube_a_traiter_final["B08"].values / 10000.0, np.nan)
-            swir = np.where(qa_mask_final, cube_a_traiter_final["B11"].values / 10000.0, np.nan)
+            red = np.where(qa_mask_final, get_s2_reflectance(cube_a_traiter_final["B04"].values), np.nan)
+            green = np.where(qa_mask_final, get_s2_reflectance(cube_a_traiter_final["B03"].values), np.nan)
+            blue = np.where(qa_mask_final, get_s2_reflectance(cube_a_traiter_final["B02"].values), np.nan)
+            nir = np.where(qa_mask_final, get_s2_reflectance(cube_a_traiter_final["B08"].values), np.nan)
+            swir = np.where(qa_mask_final, get_s2_reflectance(cube_a_traiter_final["B11"].values), np.nan)
 
             # Image RGB pour la visualisation
             img_rgb_hwc = np.stack([raw_red, raw_green, raw_blue], axis=-1) # (H, W, 3) pour l'image brute

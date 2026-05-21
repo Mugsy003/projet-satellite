@@ -60,9 +60,7 @@ print(f"{len(df_valid)} points de comparaison trouves (ICOS ou GOL).")
 MODELES = {
     'DMS':            {'col': 'LST_Sat_DMS (°C)',            'color': '#1f77b4', 'marker': 'o'},
     'TsHARP':         {'col': 'LST_Sat_TsHARP (°C)',         'color': '#d62728', 'marker': 's'},
-    'DMS Fusion':     {'col': 'LST_Sat_DMS_Fusion (°C)',     'color': '#2ca02c', 'marker': '^'},
-    'TsHARP Fusion':  {'col': 'LST_Sat_TsHARP_Fusion (°C)', 'color': '#ff7f0e', 'marker': 'D'},
-    'Deep Learning':  {'col': 'LST_Sat_DL (°C)',             'color': '#9467bd', 'marker': 'P'},
+
 }
 
 # Filtrer uniquement les modèles dont les colonnes existent

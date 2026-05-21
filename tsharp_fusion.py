@@ -62,7 +62,8 @@ def fit_tsharp(coarse_lst, coarse_ndvi, mask=None):
 
 
 def predict_tsharp(coarse_lst, coarse_ndvi, fine_ndvi, coefficients=None, mask=None):
-    """Predit la LST fine resolution via TsHARP."""
+    """Predit la LST fine resolution via TsHARP.
+    Retourne (prediction_avec_residus, prediction_sans_residus)."""
     if coefficients is None:
         coefficients = fit_tsharp(coarse_lst, coarse_ndvi, mask=mask)
 
@@ -82,14 +83,17 @@ def predict_tsharp(coarse_lst, coarse_ndvi, fine_ndvi, coefficients=None, mask=N
     )
     residual_interp = zoom(residual, zoom_factors, order=1)
 
-    fine_predicted = (
+    # Prédiction sans résidus
+    fine_predicted_no_residual = (
         a * fine_ndvi.astype(np.float64) ** 2
         + b * fine_ndvi.astype(np.float64)
         + c
-        + residual_interp
     )
 
-    return fine_predicted.astype(np.float32)
+    # Prédiction avec résidus
+    fine_predicted = fine_predicted_no_residual + residual_interp
+
+    return fine_predicted.astype(np.float32), fine_predicted_no_residual.astype(np.float32)
 
 
 # =====================================================================
@@ -233,7 +237,7 @@ def process_tsharp_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes
     mask_100m = np.isfinite(lst_100m_2d) & np.isfinite(ndvi_100m)
 
     try:
-        lst_sharpened_10m = predict_tsharp(
+        lst_sharpened_10m, lst_sans_residus_10m = predict_tsharp(
             coarse_lst=np.nan_to_num(lst_100m_2d, nan=np.nanmean(lst_100m_2d)),
             coarse_ndvi=np.nan_to_num(ndvi_100m, nan=np.nanmean(ndvi_100m)),
             fine_ndvi=np.nan_to_num(ndvi_s2_10m, nan=np.nanmean(ndvi_s2_10m)),
@@ -245,8 +249,31 @@ def process_tsharp_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes
 
     # 5. Ajuster la taille et remettre les NaN
     lst_sharpened_10m = lst_sharpened_10m[:h_s2, :w_s2]
+    lst_sans_residus_10m = lst_sans_residus_10m[:h_s2, :w_s2]
     masque_nan = np.isnan(ndvi_s2_10m)
     lst_sharpened_10m[masque_nan] = np.nan
+    lst_sans_residus_10m[masque_nan] = np.nan
+
+    # --- Calcul du RMSE de conservation d'énergie ---
+    from sklearn.metrics import mean_squared_error
+    block_size_100m = 10
+    # RMSE SANS résidus
+    lst_sans_res_agg = aggregate_block(np.nan_to_num(lst_sans_residus_10m, nan=np.nanmean(lst_sans_residus_10m)), block_size_100m)
+    h_agg, w_agg = lst_sans_res_agg.shape
+    h_min_v = min(h_agg, lst_100m_2d.shape[0])
+    w_min_v = min(w_agg, lst_100m_2d.shape[1])
+    y_true_v = lst_100m_2d[:h_min_v, :w_min_v].flatten()
+    y_pred_sans = lst_sans_res_agg[:h_min_v, :w_min_v].flatten()
+    masque_v1 = np.isfinite(y_true_v) & np.isfinite(y_pred_sans)
+    rmse_sans_residus = np.sqrt(mean_squared_error(y_true_v[masque_v1], y_pred_sans[masque_v1])) if np.sum(masque_v1) > 0 else np.nan
+
+    # RMSE AVEC résidus
+    lst_avec_res_agg = aggregate_block(np.nan_to_num(lst_sharpened_10m, nan=np.nanmean(lst_sharpened_10m)), block_size_100m)
+    y_pred_avec = lst_avec_res_agg[:h_min_v, :w_min_v].flatten()
+    masque_v2 = np.isfinite(y_true_v) & np.isfinite(y_pred_avec)
+    rmse_avec_residus = np.sqrt(mean_squared_error(y_true_v[masque_v2], y_pred_avec[masque_v2])) if np.sum(masque_v2) > 0 else np.nan
+
+    LOGGER.info(f"   ⚖️  RMSE Conservation d'Énergie : Sans résidus={rmse_sans_residus:.3f}°C | Avec résidus={rmse_avec_residus:.3f}°C")
 
     # 6. Sauvegarde TIF a 10m
     ds_base = rioxarray.open_rasterio(fichier_ndvi_s2)
@@ -255,22 +282,28 @@ def process_tsharp_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes
     ds_out.rio.to_raster(fichier_sortie)
     LOGGER.info(f"   TIF HD 10m TsHARP Fusion sauvegarde : {fichier_sortie}")
 
-    # 7. Sauvegarde visuelle PNG
-    plt.figure(figsize=(14, 7))
+    # 7. Sauvegarde visuelle PNG - Comparaison 3 panneaux
+    fig, axes = plt.subplots(1, 3, figsize=(21, 7))
 
-    plt.subplot(1, 2, 1)
-    plt.imshow(lst_landsat_2d, cmap='magma', vmin=10, vmax=50)
-    plt.title("Avant : Thermique Landsat 100m", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Panneau 1 : Thermique Landsat original
+    im0 = axes[0].imshow(lst_landsat_2d, cmap='magma', vmin=10, vmax=50)
+    axes[0].set_title("Thermique Landsat 100m", fontsize=13)
+    plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
+    axes[0].axis('off')
 
-    plt.subplot(1, 2, 2)
-    plt.imshow(lst_sharpened_10m, cmap='magma', vmin=10, vmax=50)
-    plt.title("Apres : TsHARP Fusion 10m", fontsize=14)
-    plt.colorbar(fraction=0.046, pad=0.04)
-    plt.axis('off')
+    # Panneau 2 : TsHARP Fusion SANS résidus
+    im1 = axes[1].imshow(lst_sans_residus_10m, cmap='magma', vmin=10, vmax=50)
+    axes[1].set_title(f"TsHARP Fusion sans résidus (RMSE={rmse_sans_residus:.2f}°C)", fontsize=13)
+    plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
+    axes[1].axis('off')
 
-    plt.suptitle(f"{nom_site} - {landsat_date_str} (Landsat+S2 delta={delta_minutes:.0f}min)", fontsize=16)
+    # Panneau 3 : TsHARP Fusion AVEC résidus
+    im2 = axes[2].imshow(lst_sharpened_10m, cmap='magma', vmin=10, vmax=50)
+    axes[2].set_title(f"TsHARP Fusion avec résidus (RMSE={rmse_avec_residus:.2f}°C)", fontsize=13)
+    plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
+    axes[2].axis('off')
+
+    fig.suptitle(f"{nom_site} – {landsat_date_str} (Landsat+S2 delta={delta_minutes:.0f}min) | Comparaison TsHARP Fusion", fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(fichier_comparaison, dpi=200, bbox_inches='tight')
     plt.close()

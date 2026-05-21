@@ -242,7 +242,8 @@ def save_indices_maps(liste_images, pays, output_dir):
         "EVI":  {"cmap": "RdYlGn", "vmin": -0.2, "vmax": 0.8, "label": "Végétation Dense"},
         "SAVI": {"cmap": "RdYlGn", "vmin": -0.2, "vmax": 0.8, "label": "Végétation (Sol aride)"},
         "LST":  {"cmap": "inferno", "vmin": 10, "vmax": 55, "label": "Température (°C)"},
-        "Thermique_B10": {"cmap": "inferno", "vmin": 10, "vmax": 55, "label": "Température Brute (°C)"}
+        "Thermique_B10": {"cmap": "inferno", "vmin": 10, "vmax": 55, "label": "Température Brute (°C)"},
+        "Emissivite": {"cmap": "viridis", "vmin": 0.9, "vmax": 1.0, "label": "Emissivité (Large Bande)"}
     }
     
     for item in liste_images:
