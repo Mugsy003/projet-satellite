@@ -1,0 +1,125 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Greece"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [22.080389, 38.17075]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Gebesee"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [10.914411, 51.100012]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Selhausen"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [6.447118, 50.865906]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Italy"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [7.67369, 45.017338]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Lonzee"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [4.745863, 50.551463]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Voulundgaard"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [9.1604, 56.037431]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Klingenberg"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [13.5223, 50.893044]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Estrees-Mons"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [3.02065, 49.87211]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Borgo Cioffi"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [14.957, 40.523]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Grignon"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [1.952, 48.844]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Bondville"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-88.37309, 40.05192]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Goodwin_Creek"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-89.8729, 34.25473]
+      }
+    }
+  ]
+}

@@ -1,4 +1,7 @@
 import os
+import sys
+if sys.platform.startswith('win'):
+    sys.stdout.reconfigure(encoding='utf-8')
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -19,6 +22,11 @@ if not os.path.exists(csv_path):
 print(f"Chargement des donnees depuis {csv_path}...")
 df = pd.read_csv(csv_path)
 
+# --- CONFIGURATION DU FILTRAGE DE TEMPS ---
+FILTRER_DATES = True      # Passer à True pour limiter l'évaluation à un intervalle spécifique
+DATE_DEBUT = "2022-12-31"  # Date de début (YYYY-MM-DD)
+DATE_FIN = "2024-01-01"    # Date de fin (YYYY-MM-DD)
+
 # Nettoyage des données "N/A"
 df.replace("N/A", np.nan, inplace=True)
 
@@ -27,7 +35,7 @@ cols_num = [
     'ICOS_LST (°C)', 'Temperature_GOL (°C)',
     'LST_Sat_DMS (°C)', 'LST_Sat_TsHARP (°C)',
     'LST_Sat_DMS_Fusion (°C)', 'LST_Sat_TsHARP_Fusion (°C)',
-    'LST_Sat_DL (°C)'
+    'LST_Sat_DL (°C)', 'LST_Sat_Raw_30m (°C)', 'LST_Sat_Raw_100m (°C)'
 ]
 for c in cols_num:
     if c in df.columns:
@@ -45,10 +53,22 @@ else:
     exit(1)
 
 # Filtrer : au moins une prédiction ET une vérité terrain
-pred_cols = ['LST_Sat_DMS (°C)', 'LST_Sat_TsHARP (°C)', 'LST_Sat_DMS_Fusion (°C)', 'LST_Sat_TsHARP_Fusion (°C)', 'LST_Sat_DL (°C)']
+pred_cols = ['LST_Sat_DMS (°C)', 'LST_Sat_TsHARP (°C)', 'LST_Sat_DMS_Fusion (°C)', 'LST_Sat_TsHARP_Fusion (°C)', 'LST_Sat_DL (°C)', 'LST_Sat_Raw_30m (°C)', 'LST_Sat_Raw_100m (°C)']
 existing_pred_cols = [c for c in pred_cols if c in df.columns]
 df_valid = df.dropna(subset=['Ground_LST (°C)']).copy()
 df_valid = df_valid[df_valid[existing_pred_cols].notna().any(axis=1)]
+
+# Filtrage par intervalle de temps
+if 'Date_Satellite' in df_valid.columns:
+    df_valid['Date_Satellite'] = pd.to_datetime(df_valid['Date_Satellite'])
+    if FILTRER_DATES:
+        print(f"\n📅 Filtrage de l'intervalle de temps activé : {DATE_DEBUT} au {DATE_FIN}")
+        n_avant = len(df_valid)
+        if DATE_DEBUT:
+            df_valid = df_valid[df_valid['Date_Satellite'] >= pd.to_datetime(DATE_DEBUT)]
+        if DATE_FIN:
+            df_valid = df_valid[df_valid['Date_Satellite'] <= pd.to_datetime(DATE_FIN)]
+        print(f"   - {len(df_valid)} points conservés sur {n_avant} après filtrage des dates.")
 
 if df_valid.empty:
     print("Aucune donnee de comparaison valide trouvee.")
@@ -56,11 +76,12 @@ if df_valid.empty:
 
 print(f"{len(df_valid)} points de comparaison trouves (ICOS ou GOL).")
 
-# Configuration des 5 modèles avec couleurs
+# Configuration des 7 modèles avec couleurs
 MODELES = {
     'DMS':            {'col': 'LST_Sat_DMS (°C)',            'color': '#1f77b4', 'marker': 'o'},
     'TsHARP':         {'col': 'LST_Sat_TsHARP (°C)',         'color': '#d62728', 'marker': 's'},
-
+    'Raw B10 (30m)':  {'col': 'LST_Sat_Raw_30m (°C)',        'color': '#8c564b', 'marker': 'x'},
+    'Raw B10 (100m)': {'col': 'LST_Sat_Raw_100m (°C)',       'color': '#e377c2', 'marker': '*'},
 }
 
 # Filtrer uniquement les modèles dont les colonnes existent
@@ -70,6 +91,59 @@ modeles_actifs = {k: v for k, v in MODELES.items() if v['col'] in df_valid.colum
 for nom, cfg in modeles_actifs.items():
     col_erreur = f'Erreur_{nom.replace(" ", "_")}'
     df_valid[col_erreur] = df_valid[cfg['col']] - df_valid['Ground_LST (°C)']
+
+# ==========================================
+# 1.5 FILTRAGE DES OUTLIERS (POINTS ABERRANTS)
+# ==========================================
+FILTRER_OUTLIERS = True
+OUTLIER_METHODE = "IQR"  # Options : "IQR", "Z-Score", "Seuil_Absolu"
+OUTLIER_SEUIL = 1.5      # 1.5 pour IQR, 2.5 pour Z-Score, 10.0 pour Seuil_Absolu (en °C)
+
+if FILTRER_OUTLIERS and not df_valid.empty:
+    outlier_indices = set()
+    print(f"\n🔍 Filtrage des points outliers activé (Méthode: {OUTLIER_METHODE}, Seuil: {OUTLIER_SEUIL})")
+    
+    for nom, cfg in modeles_actifs.items():
+        col_erreur = f'Erreur_{nom.replace(" ", "_")}'
+        if col_erreur in df_valid.columns:
+            err = df_valid[col_erreur].dropna()
+            if len(err) > 0:
+                if OUTLIER_METHODE == "IQR":
+                    q1 = err.quantile(0.25)
+                    q3 = err.quantile(0.75)
+                    iqr = q3 - q1
+                    lower_bound = q1 - OUTLIER_SEUIL * iqr
+                    upper_bound = q3 + OUTLIER_SEUIL * iqr
+                elif OUTLIER_METHODE == "Z-Score":
+                    mean_val = err.mean()
+                    std_val = err.std()
+                    lower_bound = mean_val - OUTLIER_SEUIL * std_val
+                    upper_bound = mean_val + OUTLIER_SEUIL * std_val
+                elif OUTLIER_METHODE == "Seuil_Absolu":
+                    lower_bound = -OUTLIER_SEUIL
+                    upper_bound = OUTLIER_SEUIL
+                else:
+                    continue
+                
+                # Identifier les outliers pour ce modèle
+                cond = (df_valid[col_erreur] < lower_bound) | (df_valid[col_erreur] > upper_bound)
+                outliers_mod = df_valid[cond].index
+                if len(outliers_mod) > 0:
+                    print(f"   - {nom} : {len(outliers_mod)} outliers détectés (Erreur hors de [{lower_bound:.2f}°C, {upper_bound:.2f}°C])")
+                    outlier_indices.update(outliers_mod)
+                    
+    if outlier_indices:
+        print(f"❌ Suppression globale de {len(outlier_indices)} points aberrants sur un total de {len(df_valid)}.")
+        # Sauvegarder les outliers pour info si nécessaire
+        df_outliers = df_valid.loc[list(outlier_indices)].copy()
+        df_outliers.to_csv("Outputs/Outliers_Retires.csv", index=False)
+        print("   💾 Liste des outliers sauvegardée dans : Outputs/Outliers_Retires.csv")
+        
+        df_valid = df_valid.drop(index=list(outlier_indices))
+        print(f"✅ Reste {len(df_valid)} points propres pour l'évaluation et les graphiques.")
+    else:
+        print("✅ Aucun point aberrant détecté.")
+
 
 plt.figure(figsize=(18, 12))
 sns.set_theme(style="whitegrid")
@@ -267,3 +341,85 @@ for site in sites:
     except Exception as e:
         plt.close()
         print(f"Erreur lors de la generation du graphique pour {site} : {e}")
+
+# ==========================================
+# Graphique 5 : RMSE, MAE et Biais Global par Modèle (Image Séparée)
+# ==========================================
+print("\nGénération du graphique global RMSE, MAE et Biais...")
+performance_global_data = []
+for nom, cfg in modeles_actifs.items():
+    sub = df_valid.dropna(subset=[cfg['col'], 'Ground_LST (°C)'])
+    if len(sub) > 0:
+        col_erreur = f'Erreur_{nom.replace(" ", "_")}'
+        rmse_val = np.sqrt(mean_squared_error(sub['Ground_LST (°C)'], sub[cfg['col']]))
+        mae_val = sub[col_erreur].abs().mean()
+        performance_global_data.append({
+            'Modele': nom, 
+            'RMSE Global (°C)': rmse_val,
+            'MAE Global (°C)': mae_val
+        })
+
+if performance_global_data:
+    df_perf_global = pd.DataFrame(performance_global_data)
+    # Trier par RMSE croissant pour un affichage plus cohérent
+    df_perf_global = df_perf_global.sort_values(by='RMSE Global (°C)')
+    
+    # Créer une figure avec 3 sous-graphiques côte à côte
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(22, 6))
+    
+    # Ordre et palette partagés
+    ordre_modeles = df_perf_global['Modele'].tolist()
+    palette_global = {row['Modele']: modeles_actifs[row['Modele']]['color'] for _, row in df_perf_global.iterrows()}
+    palette_list_aligned = [modeles_actifs[m]['color'] for m in ordre_modeles]
+    
+    # --- 1. Barplot de la RMSE ---
+    sns.barplot(x='Modele', y='RMSE Global (°C)', data=df_perf_global, order=ordre_modeles, palette=palette_global, ax=ax1)
+    ax1.set_title('RMSE Global par Méthode', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('RMSE (°C)', fontsize=12)
+    ax1.set_xlabel('Modèle', fontsize=12)
+    ax1.tick_params(axis='x', rotation=30)
+    
+    # Ajouter la valeur au-dessus des barres RMSE
+    for p in ax1.patches:
+        ax1.annotate(f"{p.get_height():.2f}°C", 
+                    (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha='center', va='bottom', 
+                    fontsize=11, fontweight='bold', color='black', xytext=(0, 5), 
+                    textcoords='offset points')
+                    
+    # --- 2. Barplot de la MAE ---
+    sns.barplot(x='Modele', y='MAE Global (°C)', data=df_perf_global, order=ordre_modeles, palette=palette_global, ax=ax2)
+    ax2.set_title('MAE Globale par Méthode', fontsize=14, fontweight='bold')
+    ax2.set_ylabel('MAE (°C)', fontsize=12)
+    ax2.set_xlabel('Modèle', fontsize=12)
+    ax2.tick_params(axis='x', rotation=30)
+    
+    # Ajouter la valeur au-dessus des barres MAE
+    for p in ax2.patches:
+        ax2.annotate(f"{p.get_height():.2f}°C", 
+                    (p.get_x() + p.get_width() / 2., p.get_height()), 
+                    ha='center', va='bottom', 
+                    fontsize=11, fontweight='bold', color='black', xytext=(0, 5), 
+                    textcoords='offset points')
+                    
+    # --- 3. Boxplot du Biais ---
+    erreur_cols = [f'Erreur_{nom.replace(" ", "_")}' for nom in modeles_actifs.keys() if f'Erreur_{nom.replace(" ", "_")}' in df_valid.columns]
+    df_melted = df_valid.melt(id_vars=['Site'], value_vars=erreur_cols, 
+                              var_name='Modele', value_name='Erreur (°C)')
+    df_melted['Modele'] = df_melted['Modele'].str.replace('Erreur_', '').str.replace('_', ' ')
+    df_melted = df_melted.dropna(subset=['Erreur (°C)'])
+    
+    if not df_melted.empty:
+        sns.boxplot(x='Modele', y='Erreur (°C)', hue='Modele', data=df_melted, order=ordre_modeles, palette=palette_list_aligned, legend=False, ax=ax3)
+    
+    ax3.axhline(0, color='black', linestyle='--', linewidth=1.5)
+    ax3.set_title('Distribution des Erreurs (Biais)', fontsize=14, fontweight='bold')
+    ax3.set_ylabel('Biais Directionnel (°C)', fontsize=12)
+    ax3.set_xlabel('Modèle', fontsize=12)
+    ax3.tick_params(axis='x', rotation=30)
+    
+    plt.tight_layout()
+    output_rmse_mae_bias_global = "Outputs/Performances_Modeles_RMSE_MAE_Bias_Global.png"
+    plt.savefig(output_rmse_mae_bias_global, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Graphique de la RMSE, MAE et Biais Globaux sauvegardé dans : {output_rmse_mae_bias_global}\n")

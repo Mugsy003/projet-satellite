@@ -62,8 +62,22 @@ for site, coords in SITES_PILOTES.items():
         # Gestion robuste des dates avec fuseaux horaires
         df_gol['created_date'] = pd.to_datetime(df_gol['created_date'], utc=True).dt.tz_localize(None)
 
-    if not pid:
-        print(f"⚠️ Aucun PID ICOS trouvé pour {site}. On traitera avec Satellite + Deep Learning uniquement.")
+    # Vérification NOAA
+    from config import PIDS_NOAA
+    if site in PIDS_NOAA:
+        print(f"🌡️ Chargement de la base de données NOAA pour {site}...")
+        noaa_file = os.path.join("Outputs_NOAA", f"donnees_noaa_{site}.csv")
+        if os.path.exists(noaa_file):
+            df_icos = pd.read_csv(noaa_file)
+            # Le premier champ est l'index (date/heure), on le renomme en TIMESTAMP pour compatibilité
+            df_icos.rename(columns={df_icos.columns[0]: 'TIMESTAMP'}, inplace=True)
+            # On retire le fuseau horaire (tz-naive) pour pouvoir le soustraire avec target_dt
+            df_icos['TIMESTAMP'] = pd.to_datetime(df_icos['TIMESTAMP']).dt.tz_localize(None)
+        else:
+            print(f"❌ Fichier NOAA introuvable : {noaa_file}")
+
+    elif not pid:
+        print(f"⚠️ Aucun PID ICOS/NOAA trouvé pour {site}. On traitera avec Satellite + Deep Learning uniquement.")
     else:
         print(f"🌡️ Chargement de la base de données ICOS (PID: {pid})...")
         try:
@@ -76,18 +90,17 @@ for site, coords in SITES_PILOTES.items():
             df_icos.replace([-9.99, -999.0, -9999.0], np.nan, inplace=True)
 
             # Consolidation dynamique des capteurs (LW_IN et LW_OUT)
-            lw_in_cols = sorted([c for c in dobj.colNames if c.startswith('LW_IN_')])
-            lw_out_cols = sorted([c for c in dobj.colNames if c.startswith('LW_OUT_')])
+            lw_in_cols = sorted([c for c in dobj.colNames if c.startswith('LW_IN_') or c == 'LW_IN'])
+            lw_out_cols = sorted([c for c in dobj.colNames if c.startswith('LW_OUT_') or c == 'LW_OUT'])
             
             df_icos['LW_IN_Consolide'] = df_icos[lw_in_cols].bfill(axis=1).iloc[:, 0] if lw_in_cols else np.nan
             df_icos['LW_OUT_Consolide'] = df_icos[lw_out_cols].bfill(axis=1).iloc[:, 0] if lw_out_cols else np.nan
 
-            # Le calcul de LST_Calculee est différé dans la boucle TIF
-            # afin d'utiliser une émissivité dynamique basée sur le NDVI du pixel.
-            sigma = 5.67e-8
-            
         except Exception as e:
             print(f"❌ Erreur ICOS pour {site} : {e}")
+
+    sigma = 5.67e-8
+
 
     # --- B. Recherche des fichiers TIF locaux ---
     tif_folder = os.path.join(BASE_TIF_DIR, f"Serie_Temporelle_{site}", "3_Indices", "TIF_Data")
@@ -189,12 +202,22 @@ for site, coords in SITES_PILOTES.items():
                     (df_icos['LW_OUT_Consolide'] - (1 - emissivite_dynamique) * df_icos['LW_IN_Consolide'])
                     / (emissivite_dynamique * sigma)
                 ) ** 0.25 - 273.15
-            # Valeur B10
+            # Valeur B10 brute à 30m et moyenne à 100m
             if os.path.exists(path_B10):
                 rds_B10 = rioxarray.open_rasterio(path_B10)
-                b10_sat = rds_B10.sel(x=x_p, y=y_p, method="nearest").values[0]
+                b10_sat = float(rds_B10.sel(x=x_p, y=y_p, method="nearest").values[0])
+                
+                # Valeur B10 moyenne à ~100m (fenêtre 3x3 autour du pixel)
+                x_idx = int(np.abs(rds_B10.x.values - x_p).argmin())
+                y_idx = int(np.abs(rds_B10.y.values - y_p).argmin())
+                window = rds_B10.isel(
+                    x=slice(max(0, x_idx-1), x_idx+2), 
+                    y=slice(max(0, y_idx-1), y_idx+2)
+                )
+                b10_100m_sat = float(window.values.mean())
             else:
                 b10_sat = np.nan
+                b10_100m_sat = np.nan
 
         except Exception:
             lst_sat_dms = np.nan
@@ -203,6 +226,7 @@ for site, coords in SITES_PILOTES.items():
             lst_sat_tsharp_fusion = np.nan
             ndvi_sat = np.nan
             b10_sat = np.nan
+            b10_100m_sat = np.nan
 
         if pd.isna(lst_sat_dms) and pd.isna(lst_sat_tsharp) and pd.isna(lst_sat_dms_fusion) and pd.isna(lst_sat_tsharp_fusion):
             continue
@@ -293,6 +317,8 @@ for site, coords in SITES_PILOTES.items():
             "Tsoil_GOL (°C)": round(temp_gol_tsoil, 2) if pd.notna(temp_gol_tsoil) else "N/A",
             "Tair_GOL (°C)": round(temp_gol_tair, 2) if pd.notna(temp_gol_tair) else "N/A",
             "B10s (°C)": round(b10_sat, 2) if pd.notna(b10_sat) else "N/A",
+            "LST_Sat_Raw_30m (°C)": round(b10_sat, 2) if pd.notna(b10_sat) else "N/A",
+            "LST_Sat_Raw_100m (°C)": round(b10_100m_sat, 2) if pd.notna(b10_100m_sat) else "N/A",
             "Biais_DMS_vs_ICOS (°C)": round(biais_dms, 2) if pd.notna(biais_dms) else "N/A",
             "Biais_TsHARP_vs_ICOS (°C)": round(biais_tsharp, 2) if pd.notna(biais_tsharp) else "N/A",
             "Biais_DMS_Fusion_vs_ICOS (°C)": round(biais_dms_fusion, 2) if pd.notna(biais_dms_fusion) else "N/A",

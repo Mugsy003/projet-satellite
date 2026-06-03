@@ -23,8 +23,8 @@ from config import SITES_PILOTES, LOGGER, TIME_MARGIN_MINUTES
 
 # --- CONFIGURATION ---
 DOSSIER_BASE = r"Outputs"
-n_estimators = 100
-max_depth = 10
+n_estimators=200
+max_depth=20
 
 # =====================================================================
 # COEFFICIENTS D'HARMONISATION SPECTRALE HLS v2.0 (Sentinel-2A -> OLI)
@@ -239,7 +239,7 @@ def process_dms_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes,
     y_test_pred = modele.predict(X_test)
     r2 = r2_score(y_test, y_test_pred)
     rmse_train = np.sqrt(mean_squared_error(y_test, y_test_pred))
-    LOGGER.info(f"   Precision Physique (a ~100m) : R2 = {r2:.3f} | RMSE = {rmse_train:.2f} C")
+    LOGGER.info(f"   Precision Physique (a ~100m) : R\u00b2 = {r2:.3f} | RMSE = {rmse_train:.2f} C")
     
     # 7. Prediction HD a 10m (resolution native S2)
     LOGGER.info(f"   Prediction sur la grille HD 10m ({h_s2}x{w_s2})...")
@@ -310,7 +310,7 @@ def process_dms_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes,
     
     # Panneau 2 : DMS Fusion SANS résidus
     im1 = axes[1].imshow(lst_avant_affichage, cmap='magma', vmin=10, vmax=50)
-    axes[1].set_title(f"DMS Fusion sans résidus (R2={r2:.2f})", fontsize=13)
+    axes[1].set_title(f"DMS Fusion sans r\u00e9sidus (R\u00b2={r2:.2f})", fontsize=13)
     plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
     axes[1].axis('off')
     

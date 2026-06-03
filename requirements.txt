@@ -13,3 +13,4 @@ scikit-image
 cubist
 rioxarray
 odc
+pvlib

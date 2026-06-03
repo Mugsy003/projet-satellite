@@ -87,7 +87,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     liste_predicteurs = [
         f"{date_str}_{nom_site}_NDVI.tif", 
         f"{date_str}_{nom_site}_NDWI.tif", 
-        f"{date_str}_{nom_site}_NDBI.tif", 
+        f"{date_str}_{nom_site}_SAVI.tif", 
         f"{date_str}_{nom_site}_EVI.tif",
         f"{nom_site}_MNT.tif"
     ]
