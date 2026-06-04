@@ -1,3 +1,4 @@
+from sklearn.ensemble import RandomForestRegressor
 import os
 import glob
 import numpy as np
@@ -8,13 +9,15 @@ matplotlib.use('Agg') # Empêche les crashs de fenêtres (Tkinter)
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
+# pyrefly: ignore [missing-import]
+import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
 from config import SITES_PILOTES, LOGGER
 
 # --- CONFIGURATION BASE ---
 DOSSIER_BASE = r"Outputs"
-n_estimators=100
-max_depth=10
+n_estimators=75
+max_depth=7
 
 def aggregate_3x3(matrice_2d):
     """Regroupe les pixels par blocs de 3x3 et calcule la moyenne.

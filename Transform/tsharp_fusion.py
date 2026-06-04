@@ -1,10 +1,17 @@
 """
-tsharp_fusion.py
+Transform/tsharp_fusion.py
 
-TsHARP Fusion : utilise le NDVI Sentinel-2 (10m) harmonise
-avec le thermique Landsat (100m) pour produire une carte LST a 10m.
+TsHARP Fusion : utilise le NDVI Sentinel-2 (10m)
+avec le thermique ECOSTRESS (~70m) pour produire une carte LST à 10m.
 
-Relation quadratique classique : LST = a * NDVI^2 + b * NDVI + c
+Relation quadratique classique : LST = a * NDVI² + b * NDVI + c
+
+Démarche identique à tsharp.py (Landsat) :
+  1. Charger le thermique ECOSTRESS (~70m) et le NDVI S2 (10m)
+  2. Dégrader le NDVI S2 à ~70m (block 7x7) pour l'apprentissage
+  3. Fit quadratique à ~70m
+  4. Prédire à la résolution native S2 (10m)
+  5. Correction des résidus (conservation d'énergie)
 """
 
 import os
@@ -21,25 +28,9 @@ from config import SITES_PILOTES, LOGGER, TIME_MARGIN_MINUTES
 
 DOSSIER_BASE = r"Outputs"
 
-# =====================================================================
-# COEFFICIENTS D'HARMONISATION SPECTRALE HLS v2.0 (Sentinel-2A -> OLI)
-# rho_OLI = slope * rho_MSI + intercept
-# Source : Claverie et al. (2018), NASA LP DAAC HLS User Guide
-# =====================================================================
-HLS_COEFFICIENTS = {
-    "B02": {"slope": 0.9778, "intercept": -0.0040},  # Blue
-    "B03": {"slope": 1.0053, "intercept": -0.0009},  # Green
-    "B04": {"slope": 0.9765, "intercept":  0.0009},  # Red
-    "B08": {"slope": 0.9983, "intercept": -0.0001},  # NIR
-    "B11": {"slope": 1.0042, "intercept":  0.0001},  # SWIR1
-}
+# Block size pour dégrader le NDVI S2 (10m) à la résolution ECOSTRESS (~70m)
+BLOCK_SIZE_ECO = 7
 
-def harmonize_s2_band(reflectance, band_name):
-    """Applique la correction spectrale HLS pour harmoniser S2 vers OLI."""
-    if band_name in HLS_COEFFICIENTS:
-        coef = HLS_COEFFICIENTS[band_name]
-        return coef["slope"] * reflectance + coef["intercept"]
-    return reflectance
 
 # =====================================================================
 # FONCTIONS TSHARP CORE
@@ -62,7 +53,7 @@ def fit_tsharp(coarse_lst, coarse_ndvi, mask=None):
 
 
 def predict_tsharp(coarse_lst, coarse_ndvi, fine_ndvi, coefficients=None, mask=None):
-    """Predit la LST fine resolution via TsHARP.
+    """Prédit la LST fine résolution via TsHARP.
     Retourne (prediction_avec_residus, prediction_sans_residus)."""
     if coefficients is None:
         coefficients = fit_tsharp(coarse_lst, coarse_ndvi, mask=mask)
@@ -106,10 +97,33 @@ def aggregate_block(matrice_2d, block_size):
     h_new = (h // block_size) * block_size
     w_new = (w // block_size) * block_size
     matrice_coupee = matrice_2d[:h_new, :w_new]
+    # np.mean transmettra les NaN s'il y a un pixel nuageux S2 dans le bloc,
+    # ce qui est souhaité pour rejeter le bloc complet de l'entraînement.
     return matrice_coupee.reshape(
         h_new // block_size, block_size, 
         w_new // block_size, block_size
     ).mean(axis=(1, 3))
+
+def calculate_homogeneity_mask(ndvi_10m, threshold=0.20):
+    """
+    Évalue la variance interne du NDVI S2 (10m) au sein de son pixel parent ECOSTRESS (~70m).
+    Retourne un masque booléen 2D à 70m : True = Homogène (pur), False = Hétérogène (mixte).
+    """
+    h, w = ndvi_10m.shape
+    block_size = BLOCK_SIZE_ECO
+    h_new, w_new = (h // block_size) * block_size, (w // block_size) * block_size
+    
+    matrice_coupee = ndvi_10m[:h_new, :w_new]
+    blocks = matrice_coupee.reshape(h_new // block_size, block_size, w_new // block_size, block_size)
+    
+    with np.errstate(divide='ignore', invalid='ignore'):
+        std_blocks = np.nanstd(blocks, axis=(1, 3))
+        mean_blocks = np.nanmean(blocks, axis=(1, 3))
+        cv_blocks = np.where(mean_blocks != 0, std_blocks / np.abs(mean_blocks), 0)
+        cv_blocks = np.nan_to_num(cv_blocks, nan=1.0)
+    
+    masque_homogene_2d = cv_blocks <= threshold
+    return masque_homogene_2d
 
 def load_raster_as_2d(filepath):
     """Charge un fichier TIF et retourne sa matrice 2D."""
@@ -121,14 +135,14 @@ def parse_date_from_filename(date_str):
     """Convertit '2025-12-12_10h36' en objet datetime."""
     return datetime.strptime(date_str, "%Y-%m-%d_%Hh%M")
 
-def find_s2_match(nom_site, landsat_date_str, max_delta_minutes=30):
-    """Cherche une image S2 quasi-simultanee."""
+def find_s2_match(nom_site, eco_date_str, max_delta_minutes=30):
+    """Cherche une image S2 quasi-simultanée à une image ECOSTRESS."""
     s2_dir = os.path.join(DOSSIER_BASE, f"Serie_Temporelle_{nom_site}_S2", "3_Indices", "TIF_Data")
     
     if not os.path.exists(s2_dir):
         return None, None
     
-    landsat_dt = parse_date_from_filename(landsat_date_str)
+    eco_dt = parse_date_from_filename(eco_date_str)
     fichiers_s2 = glob.glob(os.path.join(s2_dir, f"*_{nom_site}_S2_NDVI.tif"))
     
     meilleure_paire = None
@@ -144,7 +158,7 @@ def find_s2_match(nom_site, landsat_date_str, max_delta_minutes=30):
         except ValueError:
             continue
         
-        delta_minutes = abs((landsat_dt - s2_dt).total_seconds()) / 60
+        delta_minutes = abs((eco_dt - s2_dt).total_seconds()) / 60
         
         if delta_minutes <= max_delta_minutes and delta_minutes < meilleur_delta:
             meilleur_delta = delta_minutes
@@ -159,89 +173,69 @@ def find_s2_match(nom_site, landsat_date_str, max_delta_minutes=30):
 # FONCTION PRINCIPALE DE FUSION TSHARP
 # =====================================================================
 
-def process_tsharp_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes,
-                          dossier_landsat, dossier_s2):
+def process_tsharp_fusion(nom_site, eco_date_str, s2_date_str, delta_minutes,
+                          dossier_ecostress, dossier_s2):
     """
-    TsHARP Fusion : utilise le NDVI S2 (10m) avec le thermique Landsat.
-    Apprentissage a ~100m, prediction a 10m.
+    TsHARP Fusion : utilise le NDVI S2 (10m) avec le thermique ECOSTRESS (~70m).
+    Apprentissage à ~70m, prédiction à 10m.
     """
-    LOGGER.info(f"\n   FUSION TsHARP {landsat_date_str} + S2:{s2_date_str} (delta={delta_minutes:.0f} min)")
+    LOGGER.info(f"\n   FUSION TsHARP : ECOSTRESS {eco_date_str} + S2:{s2_date_str} (delta={delta_minutes:.0f} min)")
 
-    # 1. Charger le thermique Landsat
-    fichier_thermique = os.path.join(dossier_landsat, f"{landsat_date_str}_{nom_site}_Thermique_B10.tif")
-    fichier_sortie = os.path.join(dossier_landsat, f"{landsat_date_str}_{nom_site}_LST_Sharpened_TsHARP_Fusion.tif")
-    fichier_comparaison = os.path.join(dossier_landsat, f"{landsat_date_str}_{nom_site}_Comparaison_TsHARP_Fusion.png")
+    # 1. Charger le thermique ECOSTRESS (~70m)
+    fichier_thermique = os.path.join(dossier_ecostress, f"{eco_date_str}_{nom_site}_ECOSTRESS_LST.tif")
+    fichier_sortie = os.path.join(dossier_ecostress, f"{eco_date_str}_{nom_site}_LST_Sharpened_TsHARP_Fusion.tif")
+    fichier_comparaison = os.path.join(dossier_ecostress, f"{eco_date_str}_{nom_site}_Comparaison_TsHARP_Fusion.png")
 
     if not os.path.exists(fichier_thermique):
-        LOGGER.warning(f"   Fichier thermique introuvable : {fichier_thermique}")
+        LOGGER.warning(f"   Fichier thermique ECOSTRESS introuvable : {fichier_thermique}")
         return
 
-    lst_landsat_2d = load_raster_as_2d(fichier_thermique)
-    h_landsat, w_landsat = lst_landsat_2d.shape
+    lst_eco_2d = load_raster_as_2d(fichier_thermique)
+    h_eco, w_eco = lst_eco_2d.shape
 
-    # 2. Charger les bandes S2 Red (B04) et NIR (B08) pour recalculer le NDVI harmonise
-    # On utilise les TIF d'indices existants pour retrouver le chemin du dossier,
-    # mais on a besoin des bandes brutes. Comme elles ne sont pas sauvegardees,
-    # on charge le NDVI S2 existant puis on applique la correction HLS sur le NDVI.
-    # 
-    # Justification physique : NDVI = (NIR - Red) / (NIR + Red)
-    # Apres harmonisation : NIR_h = a_nir * NIR + b_nir, Red_h = a_red * Red + b_red
-    # Le NDVI harmonise est donc legerement different du NDVI brut.
-    # Comme les slopes HLS sont proches de 1.0, l'effet est subtil mais mesurable.
-    
+    # Vérifier que l'image ECOSTRESS a assez de pixels valides
+    nb_valid_eco = np.count_nonzero(~np.isnan(lst_eco_2d) & (lst_eco_2d > -50) & (lst_eco_2d < 80))
+    if nb_valid_eco < 50:
+        LOGGER.warning(f"   Pas assez de pixels ECOSTRESS valides ({nb_valid_eco}). Skip.")
+        return
+
+    # 2. Charger le NDVI S2 (10m) - PAS d'harmonisation HLS
     fichier_ndvi_s2 = os.path.join(dossier_s2, f"{s2_date_str}_{nom_site}_S2_NDVI.tif")
     
     if not os.path.exists(fichier_ndvi_s2):
         LOGGER.error(f"   NDVI S2 introuvable : {fichier_ndvi_s2}")
         return
     
-    ndvi_s2_raw = load_raster_as_2d(fichier_ndvi_s2)
-    
-    # Approximation de l'harmonisation sur le NDVI :
-    # On reconstruit Red et NIR approximatifs a partir du NDVI brut,
-    # puis on applique les coefficients HLS et on recalcule le NDVI.
-    # NDVI = (NIR - Red) / (NIR + Red)  =>  NIR = Red * (1 + NDVI) / (1 - NDVI)
-    # On pose Red = 0.1 (valeur typique) pour reconstruire le ratio
-    red_approx = 0.1 * np.ones_like(ndvi_s2_raw)
-    ndvi_safe = np.clip(ndvi_s2_raw, -0.99, 0.99)  # Eviter division par 0
-    nir_approx = red_approx * (1 + ndvi_safe) / (1 - ndvi_safe)
-    
-    # Harmonisation HLS
-    red_h = harmonize_s2_band(red_approx, "B04")
-    nir_h = harmonize_s2_band(nir_approx, "B08")
-    
-    # Recalcul du NDVI harmonise
-    denom = nir_h + red_h
-    ndvi_s2_10m = np.where(denom != 0, (nir_h - red_h) / denom, np.nan)
-    ndvi_s2_10m = np.where(np.isnan(ndvi_s2_raw), np.nan, ndvi_s2_10m)  # Garder les NaN originaux
+    ndvi_s2_10m = load_raster_as_2d(fichier_ndvi_s2)
     
     h_s2, w_s2 = ndvi_s2_10m.shape
-    LOGGER.info(f"   Grille Landsat : {h_landsat}x{w_landsat} (30m) | Grille S2 : {h_s2}x{w_s2} (10m)")
-    LOGGER.info(f"   Harmonisation HLS appliquee sur le NDVI (Red slope={HLS_COEFFICIENTS['B04']['slope']}, NIR slope={HLS_COEFFICIENTS['B08']['slope']})")
+    LOGGER.info(f"   Grille ECOSTRESS : {h_eco}x{w_eco} (~70m) | Grille S2 : {h_s2}x{w_s2} (10m)")
 
-    # 3. Degrader tout a ~100m pour l'apprentissage
-    block_size_100m = 10  # 10 pixels S2 de 10m = 100m
+    # 3. Dégrader tout à ~70m pour l'apprentissage
+    # 7 pixels S2 de 10m = 70m (pour matcher la résolution ECOSTRESS)
+    ndvi_70m = aggregate_block(ndvi_s2_10m, BLOCK_SIZE_ECO)
+    h_70m, w_70m = ndvi_70m.shape
     
-    ndvi_100m = aggregate_block(ndvi_s2_10m, block_size_100m)
-    h_100m, w_100m = ndvi_100m.shape
+    # Calcul du masque d'homogénéité (rejet des pixels 70m trop hétérogènes)
+    masque_homogene_2d = calculate_homogeneity_mask(ndvi_s2_10m, threshold=0.20)
     
-    # Re-echantillonner le thermique Landsat sur la grille 100m
-    zoom_h = h_100m / h_landsat
-    zoom_w = w_100m / w_landsat
-    lst_100m_2d = zoom(lst_landsat_2d, (zoom_h, zoom_w), order=1)
-    lst_100m_2d = lst_100m_2d[:h_100m, :w_100m]
+    # Rééchantillonner le thermique ECOSTRESS sur la grille 70m
+    zoom_h = h_70m / h_eco
+    zoom_w = w_70m / w_eco
+    lst_70m_2d = zoom(lst_eco_2d, (zoom_h, zoom_w), order=1)
+    lst_70m_2d = lst_70m_2d[:h_70m, :w_70m]
     
-    LOGGER.info(f"   Grille d'apprentissage a ~100m : {h_100m}x{w_100m}")
+    LOGGER.info(f"   Grille d'apprentissage à ~70m : {h_70m}x{w_70m}")
 
-    # 4. TsHARP : apprentissage quadratique a ~100m, prediction a 10m
-    mask_100m = np.isfinite(lst_100m_2d) & np.isfinite(ndvi_100m)
+    # 4. TsHARP : apprentissage quadratique à ~70m, prédiction à 10m
+    mask_70m = np.isfinite(lst_70m_2d) & np.isfinite(ndvi_70m) & (lst_70m_2d > -50) & (lst_70m_2d < 80) & masque_homogene_2d
 
     try:
         lst_sharpened_10m, lst_sans_residus_10m = predict_tsharp(
-            coarse_lst=np.nan_to_num(lst_100m_2d, nan=np.nanmean(lst_100m_2d)),
-            coarse_ndvi=np.nan_to_num(ndvi_100m, nan=np.nanmean(ndvi_100m)),
+            coarse_lst=np.nan_to_num(lst_70m_2d, nan=np.nanmean(lst_70m_2d)),
+            coarse_ndvi=np.nan_to_num(ndvi_70m, nan=np.nanmean(ndvi_70m)),
             fine_ndvi=np.nan_to_num(ndvi_s2_10m, nan=np.nanmean(ndvi_s2_10m)),
-            mask=mask_100m
+            mask=mask_70m
         )
     except Exception as e:
         LOGGER.error(f"   Erreur lors de TsHARP Fusion : {e}")
@@ -256,54 +250,57 @@ def process_tsharp_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes
 
     # --- Calcul du RMSE de conservation d'énergie ---
     from sklearn.metrics import mean_squared_error
-    block_size_100m = 10
+    
     # RMSE SANS résidus
-    lst_sans_res_agg = aggregate_block(np.nan_to_num(lst_sans_residus_10m, nan=np.nanmean(lst_sans_residus_10m)), block_size_100m)
+    lst_sans_res_agg = aggregate_block(np.nan_to_num(lst_sans_residus_10m, nan=np.nanmean(lst_sans_residus_10m)), BLOCK_SIZE_ECO)
     h_agg, w_agg = lst_sans_res_agg.shape
-    h_min_v = min(h_agg, lst_100m_2d.shape[0])
-    w_min_v = min(w_agg, lst_100m_2d.shape[1])
-    y_true_v = lst_100m_2d[:h_min_v, :w_min_v].flatten()
+    h_min_v = min(h_agg, lst_70m_2d.shape[0])
+    w_min_v = min(w_agg, lst_70m_2d.shape[1])
+    y_true_v = lst_70m_2d[:h_min_v, :w_min_v].flatten()
     y_pred_sans = lst_sans_res_agg[:h_min_v, :w_min_v].flatten()
     masque_v1 = np.isfinite(y_true_v) & np.isfinite(y_pred_sans)
     rmse_sans_residus = np.sqrt(mean_squared_error(y_true_v[masque_v1], y_pred_sans[masque_v1])) if np.sum(masque_v1) > 0 else np.nan
 
     # RMSE AVEC résidus
-    lst_avec_res_agg = aggregate_block(np.nan_to_num(lst_sharpened_10m, nan=np.nanmean(lst_sharpened_10m)), block_size_100m)
+    lst_avec_res_agg = aggregate_block(np.nan_to_num(lst_sharpened_10m, nan=np.nanmean(lst_sharpened_10m)), BLOCK_SIZE_ECO)
     y_pred_avec = lst_avec_res_agg[:h_min_v, :w_min_v].flatten()
     masque_v2 = np.isfinite(y_true_v) & np.isfinite(y_pred_avec)
     rmse_avec_residus = np.sqrt(mean_squared_error(y_true_v[masque_v2], y_pred_avec[masque_v2])) if np.sum(masque_v2) > 0 else np.nan
 
     LOGGER.info(f"   ⚖️  RMSE Conservation d'Énergie : Sans résidus={rmse_sans_residus:.3f}°C | Avec résidus={rmse_avec_residus:.3f}°C")
 
-    # 6. Sauvegarde TIF a 10m
+    # 6. Sauvegarde TIF à 10m
     ds_base = rioxarray.open_rasterio(fichier_ndvi_s2)
     ds_out = ds_base.copy()
     ds_out.values = [lst_sharpened_10m]
     ds_out.rio.to_raster(fichier_sortie)
-    LOGGER.info(f"   TIF HD 10m TsHARP Fusion sauvegarde : {fichier_sortie}")
+    LOGGER.info(f"   TIF HD 10m TsHARP Fusion sauvegardé : {fichier_sortie}")
 
     # 7. Sauvegarde visuelle PNG - Comparaison 3 panneaux
     fig, axes = plt.subplots(1, 3, figsize=(21, 7))
 
-    # Panneau 1 : Thermique Landsat original
-    im0 = axes[0].imshow(lst_landsat_2d, cmap='magma', vmin=10, vmax=50)
-    axes[0].set_title("Thermique Landsat 100m", fontsize=13)
+    vmin = np.nanpercentile(lst_eco_2d, 2)
+    vmax = np.nanpercentile(lst_eco_2d, 98)
+
+    # Panneau 1 : Thermique ECOSTRESS original
+    im0 = axes[0].imshow(lst_eco_2d, cmap='magma', vmin=vmin, vmax=vmax)
+    axes[0].set_title("ECOSTRESS LST ~70m (original)", fontsize=13)
     plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
     axes[0].axis('off')
 
     # Panneau 2 : TsHARP Fusion SANS résidus
-    im1 = axes[1].imshow(lst_sans_residus_10m, cmap='magma', vmin=10, vmax=50)
+    im1 = axes[1].imshow(lst_sans_residus_10m, cmap='magma', vmin=vmin, vmax=vmax)
     axes[1].set_title(f"TsHARP Fusion sans résidus (RMSE={rmse_sans_residus:.2f}°C)", fontsize=13)
     plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
     axes[1].axis('off')
 
     # Panneau 3 : TsHARP Fusion AVEC résidus
-    im2 = axes[2].imshow(lst_sharpened_10m, cmap='magma', vmin=10, vmax=50)
+    im2 = axes[2].imshow(lst_sharpened_10m, cmap='magma', vmin=vmin, vmax=vmax)
     axes[2].set_title(f"TsHARP Fusion avec résidus (RMSE={rmse_avec_residus:.2f}°C)", fontsize=13)
     plt.colorbar(im2, ax=axes[2], fraction=0.046, pad=0.04)
     axes[2].axis('off')
 
-    fig.suptitle(f"{nom_site} – {landsat_date_str} (Landsat+S2 delta={delta_minutes:.0f}min) | Comparaison TsHARP Fusion", fontsize=14, fontweight='bold')
+    fig.suptitle(f"{nom_site} – {eco_date_str} (ECOSTRESS+S2 delta={delta_minutes:.0f}min) | Comparaison TsHARP Fusion", fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(fichier_comparaison, dpi=200, bbox_inches='tight')
     plt.close()
@@ -311,45 +308,48 @@ def process_tsharp_fusion(nom_site, landsat_date_str, s2_date_str, delta_minutes
 
 def main():
     LOGGER.info("========================================")
-    LOGGER.info("DEMARRAGE DU TsHARP FUSION (Landsat Thermique + S2 NDVI)")
+    LOGGER.info("DÉMARRAGE DU TsHARP FUSION (ECOSTRESS Thermique + S2 NDVI)")
     LOGGER.info("========================================")
 
     for nom_site in SITES_PILOTES.keys():
         LOGGER.info(f"\n=== Traitement du site : {nom_site} ===")
         
-        dossier_landsat = os.path.join(DOSSIER_BASE, f"Serie_Temporelle_{nom_site}", "3_Indices", "TIF_Data")
+        dossier_ecostress = os.path.join(DOSSIER_BASE, f"Serie_Temporelle_{nom_site}_ECOSTRESS", "TIF_Data")
         dossier_s2 = os.path.join(DOSSIER_BASE, f"Serie_Temporelle_{nom_site}_S2", "3_Indices", "TIF_Data")
         
-        if not os.path.exists(dossier_landsat):
-            LOGGER.info(f"   Pas de dossier Landsat pour {nom_site}. Skip.")
+        if not os.path.exists(dossier_ecostress):
+            LOGGER.info(f"   Pas de dossier ECOSTRESS pour {nom_site}. Skip.")
             continue
         
         if not os.path.exists(dossier_s2):
             LOGGER.info(f"   Pas de dossier S2 pour {nom_site}. Skip.")
             continue
             
-        fichiers_thermiques = glob.glob(os.path.join(dossier_landsat, f"*_{nom_site}_Thermique_B10.tif"))
+        # Trouver toutes les images ECOSTRESS LST
+        fichiers_eco = glob.glob(os.path.join(dossier_ecostress, f"*_{nom_site}_ECOSTRESS_LST.tif"))
+        
+        LOGGER.info(f"   {len(fichiers_eco)} images ECOSTRESS détectées.")
         
         nb_fusions = 0
-        for chemin_fichier in fichiers_thermiques:
+        for chemin_fichier in fichiers_eco:
             nom_fichier = os.path.basename(chemin_fichier)
             parts = nom_fichier.split('_')
-            landsat_date_str = f"{parts[0]}_{parts[1]}"
+            eco_date_str = f"{parts[0]}_{parts[1]}"
             
-            s2_date_str, delta_minutes = find_s2_match(nom_site, landsat_date_str, TIME_MARGIN_MINUTES)
+            s2_date_str, delta_minutes = find_s2_match(nom_site, eco_date_str, TIME_MARGIN_MINUTES)
             
             if s2_date_str:
                 process_tsharp_fusion(
-                    nom_site, landsat_date_str, s2_date_str, delta_minutes,
-                    dossier_landsat, dossier_s2
+                    nom_site, eco_date_str, s2_date_str, delta_minutes,
+                    dossier_ecostress, dossier_s2
                 )
                 nb_fusions += 1
             else:
-                LOGGER.info(f"   {landsat_date_str} : Pas de paire S2 (<{TIME_MARGIN_MINUTES} min). TsHARP classique uniquement.")
+                LOGGER.info(f"   {eco_date_str} : Pas de paire S2 (<{TIME_MARGIN_MINUTES} min).")
         
-        LOGGER.info(f"   {nb_fusions} fusion(s) realisee(s) pour {nom_site}.")
+        LOGGER.info(f"   {nb_fusions} fusion(s) réalisée(s) pour {nom_site}.")
 
-    LOGGER.info("\nTraitement TsHARP Fusion termine pour tous les sites !")
+    LOGGER.info("\nTraitement TsHARP Fusion (ECOSTRESS+S2) terminé pour tous les sites !")
 
 if __name__ == "__main__":
     main()

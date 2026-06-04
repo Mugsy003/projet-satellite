@@ -9,15 +9,13 @@ import numpy as np
 from sklearn.metrics import mean_squared_error
 
 # Create Outputs dir if missing
-os.makedirs("Outputs", exist_ok=True)
+os.makedirs("Outputs_performances", exist_ok=True)
 
 # 1. Charger les données
 csv_path = "Outputs/Validation_Saisonniere_LST.csv"
 if not os.path.exists(csv_path):
-    csv_path = "Outputs/Validation_Saisonniere_LST_2526.csv"
-    if not os.path.exists(csv_path):
-        print("Fichier CSV de validation introuvable.")
-        exit(1)
+    print("Fichier CSV de validation introuvable.")
+    exit(1)
 
 print(f"Chargement des donnees depuis {csv_path}...")
 df = pd.read_csv(csv_path)
@@ -136,8 +134,8 @@ if FILTRER_OUTLIERS and not df_valid.empty:
         print(f"❌ Suppression globale de {len(outlier_indices)} points aberrants sur un total de {len(df_valid)}.")
         # Sauvegarder les outliers pour info si nécessaire
         df_outliers = df_valid.loc[list(outlier_indices)].copy()
-        df_outliers.to_csv("Outputs/Outliers_Retires.csv", index=False)
-        print("   💾 Liste des outliers sauvegardée dans : Outputs/Outliers_Retires.csv")
+        df_outliers.to_csv("Outputs_performances/Outliers_Retires.csv", index=False)
+        print("   💾 Liste des outliers sauvegardée dans : Outputs_performances/Outliers_Retires.csv")
         
         df_valid = df_valid.drop(index=list(outlier_indices))
         print(f"✅ Reste {len(df_valid)} points propres pour l'évaluation et les graphiques.")
@@ -234,7 +232,7 @@ if 'Date_Satellite' in df_valid.columns:
     plt.xticks(rotation=45)
 
 plt.tight_layout()
-output_img_global = "Outputs/Performances_Modeles_Global.png"
+output_img_global = "Outputs_performances/Performances_Modeles_Global.png"
 plt.savefig(output_img_global, dpi=300, bbox_inches='tight')
 plt.close()
 print(f"Graphique global sauvegarde dans : {output_img_global}")
@@ -333,7 +331,7 @@ for site in sites:
             plt.xticks(rotation=45)
             
         plt.tight_layout()
-        output_site = f"Outputs/Performances_Modeles_{site}.png"
+        output_site = f"Outputs_performances/Performances_Modeles_{site}.png"
         plt.savefig(output_site, dpi=300, bbox_inches='tight')
         plt.close()
         print(f"Graphique specifique au site sauvegarde dans : {output_site}")
@@ -419,7 +417,7 @@ if performance_global_data:
     ax3.tick_params(axis='x', rotation=30)
     
     plt.tight_layout()
-    output_rmse_mae_bias_global = "Outputs/Performances_Modeles_RMSE_MAE_Bias_Global.png"
+    output_rmse_mae_bias_global = "Outputs_performances/Performances_Modeles_RMSE_MAE_Bias_Global.png"
     plt.savefig(output_rmse_mae_bias_global, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Graphique de la RMSE, MAE et Biais Globaux sauvegardé dans : {output_rmse_mae_bias_global}\n")
