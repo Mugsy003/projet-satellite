@@ -3,106 +3,79 @@
 Ce projet a pour but de télécharger des données satellitaires multi-capteurs (Landsat 8/9, Sentinel-2, ECOSTRESS), d'en extraire la Température de Surface Terrestre (LST) et des indices optiques, puis d'appliquer des algorithmes de *downscaling spatial* (sharpening) pour améliorer la résolution spatiale de la LST.
 Enfin, le projet compare ces températures satellitaires avec des mesures de stations au sol (réseaux ICOS et NOAA).
 
-## 📊 Pipeline de Traitement
+## 🚀 Le Pipeline Automatisé (`main.py`)
 
-Le pipeline est divisé en quatre grandes étapes :
-1. **Extraction** : Requêtage des catalogues STAC pour trouver les images sans télécharger de données inutiles.
-2. **Transformation** : Téléchargement effectif, masquage des nuages, calcul des indices (NDVI, NDWI, etc.) et de la LST.
-3. **Désagrégation (Sharpening / Fusion)** : Amélioration de la résolution spatiale thermique grâce à l'optique.
-4. **Validation Ground-Truth** : Comparaison avec les données terrain.
+L'intégralité du projet peut désormais être exécutée depuis un seul point d'entrée : **`main.py`**.
+Ce script orchestrateur lance automatiquement (et dans l'ordre) l'extraction, la transformation, le machine learning, la comparaison avec le terrain et la visualisation.
 
----
-
-## ⚙️ Configuration
-Avant de lancer les scripts, vous pouvez paramétrer votre environnement dans le fichier **`config.py`** :
-- `SITES_PILOTES` : Coordonnées (lon, lat) des sites (ex: Gebesee, Greece, NOAA SURFRAD...).
-- `TIME_OF_INTEREST` : Période temporelle d'extraction (ex: "2022-01-01/2024-08-31").
-- `TIME_MARGIN_MINUTES` : Fenêtre temporelle (ex: 30 minutes) pour trouver des couples satellites (ex: ECOSTRESS et Sentinel-2).
-- `ltd` : Seuil de couverture nuageuse maximum accepté.
-
----
-
-## 🚀 Guide d'Utilisation (Commandes)
-
-Exécutez toujours les scripts depuis la racine du projet (là où se trouve ce `README.md`).
-
-### Étape 1 : Extraction (Catalogues STAC)
-Ces scripts ne téléchargent pas les images lourdes (GeoTIFF), mais génèrent des "manifestes" (`.json`) listant les identifiants des images valides.
-
-- **Pour Landsat** : 
-  ```bash
-  python -m Extraction.main_extract
-  ```
-- **Pour le couple ECOSTRESS / Sentinel-2** (Extraction intelligente croisée) :
-  ```bash
-  python -m Extraction.main_extract_paires_eco_s2
-  ```
-  *(Ce script cherche des images S2 sans nuages, puis trouve les images ECOSTRESS correspondantes à ±30 min, optimisant ainsi les téléchargements).*
-
-### Étape 2 : Transformation (Calculs et TIF)
-Ces scripts lisent les manifestes, téléchargent les données réelles et calculent les indices (NDVI, SAVI...) ainsi que la LST. Les résultats sont sauvegardés dans le dossier `Outputs/`.
-
-- **Transformation Landsat** (Optique + Thermique 30m) :
-  ```bash
-  python -m Transform.main_transform
-  ```
-- **Transformation Sentinel-2** (Indices optiques 10m) :
-  ```bash
-  python -m Transform.main_transform_sentinel
-  ```
-- **Transformation ECOSTRESS** (Thermique ~70m) :
-  ```bash
-  python -m Transform.main_transform_ecostress
-  ```
-
-### Étape 3 : Sharpening & Fusion (Désagrégation spatiale)
-Ces algorithmes utilisent la relation entre la végétation (indices optiques HD) et la température (basse résolution) pour simuler une LST Haute Résolution.
-
-- **Sharpening Landsat pur (100m -> 30m)** :
-  ```bash
-  python -m Transform.dms_sharpening
-  python -m Transform.tsharp
-  ```
-- **Fusion ECOSTRESS + Sentinel-2 (~70m -> 10m)** :
-  ```bash
-  python -m Transform.dms_sharpening_fusion
-  python -m Transform.tsharp_fusion
-  ```
-
-### Étape 4 : Validation et Performances
-Une fois les images générées, on les compare aux mesures des stations locales.
-
-- **Extraction des valeurs pixels et croisement avec ICOS/NOAA** :
-  ```bash
-  python comparaison_ICOS.py
-  ```
-  *(Génère un fichier CSV global de comparaison dans `Outputs/` et des séries temporelles)*
-  
-- **Visualisation des performances (RMSE, MAE, Biais)** :
-  ```bash
-  python visualisation_performances.py
-  ```
-  *(Génère des boîtes à moustaches (boxplots) triées avec élimination des outliers)*
-
----
-
-## 📁 Architecture des Outputs
-
-Tous les résultats sont générés dans le dossier `Outputs/` :
-```text
-Outputs/
-├── manifest_extraction*.json          # Fichiers de pilotage
-├── Previews/                          # Aperçus rapides (Quicklooks)
-├── Comparaison_ICOS_Global.csv        # Données croisées Satellite/Station
-├── Performances_Modeles_RMSE_MAE_Bias_Global.png  # Graphiques de perf
-├── Serie_Temporelle_{Site}/           # Données Landsat
-│   └── 3_Indices/TIF_Data/            # LST, NDVI, DMS, TsHARP...
-├── Serie_Temporelle_{Site}_S2/        # Données Sentinel-2
-│   └── 3_Indices/TIF_Data/            # NDVI, NDWI (10m)...
-└── Serie_Temporelle_{Site}_ECOSTRESS/ # Données ECOSTRESS
-    └── TIF_Data/                      # LST (70m) + LST_Sharpened (10m)
+```bash
+python main.py
 ```
 
-## 🧠 Modèles de Machine Learning utilisés
-- **DMS (Data Mining Sharpening)** : Utilise un algorithme `RandomForestRegressor` pour apprendre la relation non-linéaire entre une multitude d'indices spatiaux (NDVI, EVI, MNT, coordonnées) et la température. Modèle très robuste.
-- **TsHARP** : Utilise une simple régression quadratique (Moindres Carrés) liant uniquement le NDVI à la température. Modèle très rapide, standard de la littérature classique.
+Vous pouvez **activer ou désactiver** chaque étape individuellement en modifiant le dictionnaire `PIPELINE_STEPS` dans le fichier **`config.py`**.
+
+---
+
+## ⚙️ Configuration (`config.py`)
+
+Avant de lancer le projet, paramétrez votre environnement dans **`config.py`** :
+- `PIPELINE_STEPS` : Active/désactive les étapes de `main.py` (ex: `"extraction_landsat": True`).
+- `SITES_PILOTES` : Coordonnées (lon, lat) des sites terrestres à étudier.
+- `TIME_OF_INTEREST` : Période temporelle globale d'extraction.
+- `DATE_DEBUT_VISU` / `DATE_FIN_VISU` : Permet de restreindre les graphiques finaux à une saison précise.
+- `TIME_MARGIN_MINUTES` : Fenêtre temporelle (ex: 30 minutes) pour trouver des couples satellites parfaits (ex: ECOSTRESS et Sentinel-2).
+
+---
+
+## 📁 Architecture du Projet (Par Mission)
+
+Le code est structuré de façon modulaire, séparé par mission spatiale :
+
+```text
+projet-satellite/
+├── config.py                         # Fichier de configuration central
+├── main.py                           # Orchestrateur global
+├── comparaison_ICOS.py               # Validation des pixels avec les stations
+├── visualisation_performances.py     # Création des graphiques (boxplots)
+├── optimisation_pipeline.py          # Tuning des hyperparamètres via Optuna
+│
+├── Extraction/                       # Recherche STAC et Manifestes
+│   ├── Landsat/
+│   ├── ECOSTRESS/
+│   ├── Sentinel2/
+│   ├── ICOS/                         # Téléchargement des vraies données météo
+│   └── utils/
+│
+├── Transform/                        # Calcul des Indices, LST et Sharpening
+│   ├── Landsat/                      # Sharpening intra-capteur (100m -> 30m)
+│   ├── ECOSTRESS/
+│   ├── Sentinel2/
+│   ├── Fusion/                       # Fusion multi-capteur (ECOSTRESS+S2, 70m -> 10m)
+│   └── common/
+│
+├── Analyse/                          # Scripts de statistiques et études annexes
+└── donnees_Gol/                      # Fichiers CSV de températures externes
+```
+
+---
+
+## 🧠 Modèles de Machine Learning et Optimisation
+
+### Les Algorithmes de Sharpening
+- **DMS (Data Mining Sharpening)** : Utilise un algorithme `RandomForestRegressor` ou `LightGBM` pour apprendre la relation complexe et non-linéaire entre une multitude d'indices spatiaux (NDVI, NDWI, SAVI, EVI, MNT, Coordonnées XY) et la température.
+- **TsHARP** : Algorithme classique de la littérature basé sur une régression des Moindres Carrés liant uniquement le NDVI à la température.
+
+### Auto-Tuning (Optuna)
+Pour trouver les paramètres parfaits du DMS (RandomForest vs LightGBM, profondeur des arbres, etc.), vous pouvez lancer la boucle d'optimisation intelligente. Elle testera des dizaines de configurations et conservera celle qui offre la meilleure **RMSE Terrain** :
+```bash
+python optimisation_pipeline.py
+```
+
+---
+
+## 📊 Outputs Générés
+
+Tous les résultats sont générés dans le dossier `Outputs/` :
+- `Outputs/Validation_Saisonniere_LST.csv` : Bilan global croisant le satellite et le terrain.
+- `Outputs_performances/` : Graphiques finaux (RMSE, MAE, Boxplots).
+- `Outputs/Serie_Temporelle_{Site}_[Mission]/` : Les images TIF générées et les indices optiques en haute résolution.

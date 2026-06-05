@@ -1,0 +1,1 @@
+{"model_type": "LightGBM", "n_estimators": 500, "max_depth": 15, "learning_rate": 0.09613330263814031, "num_leaves": 47, "subsample": 0.7595598629062297}

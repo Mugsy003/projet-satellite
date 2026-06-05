@@ -28,7 +28,7 @@ TIME_OF_INTEREST = "2022-12-31/2024-01-01"
 
 BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16"]
 BANDS_OF_INTEREST_S2 = ["B02", "B03", "B04", "B08", "B11", "SCL"]
-TIME_MARGIN_MINUTES = 30
+TIME_MARGIN_MINUTES = 60
 lt = 99
 ltd = 50
 radius_km = 3
@@ -81,4 +81,24 @@ PIDS_NOAA = {
     "Goodwin_Creek": "gwn"
 }
 
+# --- Période de Visualisation (pour visualisation_performances.py) ---
+FILTRER_DATES_VISU = True
+DATE_DEBUT_VISU = "2022-12-31"
+DATE_FIN_VISU = "2024-08-31"
 
+# --- Pipeline : étapes à exécuter via main.py ---
+PIPELINE_STEPS = {
+    "extraction_landsat": True,
+    "extraction_ecostress": True,
+    "extraction_sentinel": True,
+    "extraction_paires_eco_s2": True,
+    "transform_landsat": True,
+    "transform_ecostress": True,
+    "transform_sentinel": True,
+    "sharpening_dms_landsat": True,
+    "sharpening_tsharp_landsat": True,
+    "fusion_dms": True,
+    "fusion_tsharp": True,
+    "comparaison_icos": True,
+    "visualisation": True,
+}

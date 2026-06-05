@@ -104,17 +104,50 @@ for site, coords in SITES_PILOTES.items():
 
     # --- B. Recherche des fichiers TIF locaux ---
     tif_folder = os.path.join(BASE_TIF_DIR, f"Serie_Temporelle_{site}", "3_Indices", "TIF_Data")
-    if not os.path.exists(tif_folder):
-        print(f"❌ Dossier TIF introuvable : {tif_folder}")
+    eco_folder = os.path.join(BASE_TIF_DIR, f"Serie_Temporelle_{site}_ECOSTRESS", "TIF_Data")
+    
+    dict_dates_paths = {} # target_dt -> {'dms': path, 'tsharp': path, 'ndvi': path, 'b10': path, 'dms_fusion': path, 'tsharp_fusion': path}
+    
+    if os.path.exists(tif_folder):
+        for f in os.listdir(tif_folder):
+            dt = extract_datetime_from_filename(f)
+            if not dt: continue
+            if dt not in dict_dates_paths:
+                dict_dates_paths[dt] = {}
+            if f.endswith('.tif'):
+                if "LST_Sharpened_DMS" in f and "Fusion" not in f:
+                    dict_dates_paths[dt]['dms'] = os.path.join(tif_folder, f)
+                elif "LST_Sharpened_TsHARP" in f and "Fusion" not in f:
+                    dict_dates_paths[dt]['tsharp'] = os.path.join(tif_folder, f)
+                elif "NDVI" in f:
+                    dict_dates_paths[dt]['ndvi'] = os.path.join(tif_folder, f)
+                elif "Thermique_B10" in f:
+                    dict_dates_paths[dt]['b10'] = os.path.join(tif_folder, f)
+                elif "LST_Sharpened_DMS_Fusion" in f:
+                    dict_dates_paths[dt]['dms_fusion'] = os.path.join(tif_folder, f)
+                elif "LST_Sharpened_TsHARP_Fusion" in f:
+                    dict_dates_paths[dt]['tsharp_fusion'] = os.path.join(tif_folder, f)
+
+    if os.path.exists(eco_folder):
+        for f in os.listdir(eco_folder):
+            dt = extract_datetime_from_filename(f)
+            if not dt: continue
+            if dt not in dict_dates_paths:
+                dict_dates_paths[dt] = {}
+            if f.endswith('.tif'):
+                if "LST_Sharpened_DMS_Fusion" in f:
+                    dict_dates_paths[dt]['dms_fusion'] = os.path.join(eco_folder, f)
+                elif "LST_Sharpened_TsHARP_Fusion" in f:
+                    dict_dates_paths[dt]['tsharp_fusion'] = os.path.join(eco_folder, f)
+
+    if not dict_dates_paths:
+        print(f"❌ Aucun fichier TIF trouvé pour {site}")
         continue
 
-    fichiers_tif = [f for f in os.listdir(tif_folder) if f.endswith('.tif') and "LST_Sharpened_DMS" in f]
-    print(f"📂 {len(fichiers_tif)} fichiers TIF détectés. Analyse en cours...")
+    print(f"📂 {len(dict_dates_paths)} dates TIF détectées. Analyse en cours...")
 
     # --- C. Comparaison Temporelle Intelligente ---
-    for f in fichiers_tif:
-        target_dt = extract_datetime_from_filename(f)
-        if not target_dt: continue
+    for target_dt, paths in sorted(dict_dates_paths.items()):
         
         # On ne filtre plus par rapport à TIME_OF_INTEREST pour pouvoir analyser toutes les images téléchargées
         # if not (start_date <= target_dt <= end_date):
@@ -131,38 +164,32 @@ for site, coords in SITES_PILOTES.items():
 
         # 1. Extraction de la Valeur Satellite (LST et NDVI)
         try:
-            # Chemin LST DMS
-            path_lst_dms = os.path.join(tif_folder, f)
-            # Chemin LST TsHARP
-            path_lst_tsharp = path_lst_dms.replace("LST_Sharpened_DMS", "LST_Sharpened_TsHARP")
-            # Chemin LST DMS Fusion
-            path_lst_dms_fusion = path_lst_dms.replace("LST_Sharpened_DMS", "LST_Sharpened_DMS_Fusion")
-            # Chemin LST TsHARP Fusion
-            path_lst_tsharp_fusion = path_lst_dms.replace("LST_Sharpened_DMS", "LST_Sharpened_TsHARP_Fusion")
-            
-            # Chemin NDVI et B10
-            path_ndvi = path_lst_dms.replace("LST_Sharpened_DMS", "NDVI")
-            path_B10 = path_lst_dms.replace("LST_Sharpened_DMS", "Thermique_B10")
-            
-            rds_lst_dms = rioxarray.open_rasterio(path_lst_dms)
-            transformer = Transformer.from_crs("EPSG:4326", rds_lst_dms.rio.crs, always_xy=True)
-            x_p, y_p = transformer.transform(coords["lon"], coords["lat"])
+            path_lst_dms = paths.get('dms')
+            path_lst_tsharp = paths.get('tsharp')
+            path_lst_dms_fusion = paths.get('dms_fusion')
+            path_lst_tsharp_fusion = paths.get('tsharp_fusion')
+            path_ndvi = paths.get('ndvi')
+            path_B10 = paths.get('b10')
             
             # Valeur LST DMS
-            pixel_val_dms = rds_lst_dms.sel(x=x_p, y=y_p, method="nearest").values[0]
-            lst_sat_dms = pixel_val_dms - 273.15 if pixel_val_dms > 200 else pixel_val_dms
+            lst_sat_dms = np.nan
+            if path_lst_dms and os.path.exists(path_lst_dms):
+                rds_lst_dms = rioxarray.open_rasterio(path_lst_dms)
+                transformer = Transformer.from_crs("EPSG:4326", rds_lst_dms.rio.crs, always_xy=True)
+                x_p, y_p = transformer.transform(coords["lon"], coords["lat"])
+                pixel_val_dms = rds_lst_dms.sel(x=x_p, y=y_p, method="nearest").values[0]
+                lst_sat_dms = pixel_val_dms - 273.15 if pixel_val_dms > 200 else pixel_val_dms
 
             # Valeur LST TsHARP
-            if os.path.exists(path_lst_tsharp):
+            lst_sat_tsharp = np.nan
+            if path_lst_tsharp and os.path.exists(path_lst_tsharp):
                 rds_lst_tsharp = rioxarray.open_rasterio(path_lst_tsharp)
                 pixel_val_tsharp = rds_lst_tsharp.sel(x=x_p, y=y_p, method="nearest").values[0]
                 lst_sat_tsharp = pixel_val_tsharp - 273.15 if pixel_val_tsharp > 200 else pixel_val_tsharp
-            else:
-                lst_sat_tsharp = np.nan
 
             # Valeur LST DMS Fusion (10m - grille S2 differente, besoin d'un nouveau transformer)
             lst_sat_dms_fusion = np.nan
-            if os.path.exists(path_lst_dms_fusion):
+            if path_lst_dms_fusion and os.path.exists(path_lst_dms_fusion):
                 rds_fusion = rioxarray.open_rasterio(path_lst_dms_fusion)
                 tf_fusion = Transformer.from_crs("EPSG:4326", rds_fusion.rio.crs, always_xy=True)
                 xf, yf = tf_fusion.transform(coords["lon"], coords["lat"])
@@ -171,7 +198,7 @@ for site, coords in SITES_PILOTES.items():
 
             # Valeur LST TsHARP Fusion (10m)
             lst_sat_tsharp_fusion = np.nan
-            if os.path.exists(path_lst_tsharp_fusion):
+            if path_lst_tsharp_fusion and os.path.exists(path_lst_tsharp_fusion):
                 rds_fusion_ts = rioxarray.open_rasterio(path_lst_tsharp_fusion)
                 tf_fusion_ts = Transformer.from_crs("EPSG:4326", rds_fusion_ts.rio.crs, always_xy=True)
                 xft, yft = tf_fusion_ts.transform(coords["lon"], coords["lat"])
@@ -179,11 +206,14 @@ for site, coords in SITES_PILOTES.items():
                 lst_sat_tsharp_fusion = pvt - 273.15 if pvt > 200 else pvt
 
             # Valeur NDVI
-            if os.path.exists(path_ndvi):
+            ndvi_sat = np.nan
+            if path_ndvi and os.path.exists(path_ndvi):
                 rds_ndvi = rioxarray.open_rasterio(path_ndvi)
+                # Ensure we have transformer x_p, y_p
+                if 'transformer' not in locals():
+                    transformer = Transformer.from_crs("EPSG:4326", rds_ndvi.rio.crs, always_xy=True)
+                    x_p, y_p = transformer.transform(coords["lon"], coords["lat"])
                 ndvi_sat = rds_ndvi.sel(x=x_p, y=y_p, method="nearest").values[0]
-            else:
-                ndvi_sat = np.nan
 
             # --- Émissivité dynamique basée sur le NDVI ---
             # fraction_vegetation selon la méthode de Sobrino et al.
@@ -203,8 +233,13 @@ for site, coords in SITES_PILOTES.items():
                     / (emissivite_dynamique * sigma)
                 ) ** 0.25 - 273.15
             # Valeur B10 brute à 30m et moyenne à 100m
-            if os.path.exists(path_B10):
+            b10_sat = np.nan
+            b10_100m_sat = np.nan
+            if path_B10 and os.path.exists(path_B10):
                 rds_B10 = rioxarray.open_rasterio(path_B10)
+                if 'transformer' not in locals():
+                    transformer = Transformer.from_crs("EPSG:4326", rds_B10.rio.crs, always_xy=True)
+                    x_p, y_p = transformer.transform(coords["lon"], coords["lat"])
                 b10_sat = float(rds_B10.sel(x=x_p, y=y_p, method="nearest").values[0])
                 
                 # Valeur B10 moyenne à ~100m (fenêtre 3x3 autour du pixel)
@@ -215,9 +250,6 @@ for site, coords in SITES_PILOTES.items():
                     y=slice(max(0, y_idx-1), y_idx+2)
                 )
                 b10_100m_sat = float(window.values.mean())
-            else:
-                b10_sat = np.nan
-                b10_100m_sat = np.nan
 
         except Exception:
             lst_sat_dms = np.nan

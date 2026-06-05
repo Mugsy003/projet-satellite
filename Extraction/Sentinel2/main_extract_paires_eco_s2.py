@@ -12,8 +12,8 @@ import os
 import json
 from datetime import timedelta
 
-import Extraction.stac_client_sentinel as stac_s2
-import Extraction.stac_client_ecostress as stac_eco
+import Extraction.Sentinel2.stac_client_sentinel as stac_s2
+import Extraction.ECOSTRESS.stac_client_ecostress as stac_eco
 from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, OUTPUT_DIR, TIME_MARGIN_MINUTES, ltd, radius_km
 from Utils import get_bbox_from_point
 

@@ -5,7 +5,7 @@ import os
 import json
 from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, PREVIEWS_DIR, OUTPUT_DIR, ltd, radius_km, nb_images
 from Utils import get_bbox_from_point
-import Extraction.stac_client_ecostress as stac_client_eco
+import Extraction.ECOSTRESS.stac_client_ecostress as stac_client_eco
 
 # ECOSTRESS a une fauchée étroite (~400 km). Beaucoup de tuiles STAC 
 # couvrent géographiquement le site mais n'ont aucune donnée réelle (NaN).

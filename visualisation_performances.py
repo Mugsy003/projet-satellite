@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from sklearn.metrics import mean_squared_error
+from config import FILTRER_DATES_VISU, DATE_DEBUT_VISU, DATE_FIN_VISU
 
 # Create Outputs dir if missing
 os.makedirs("Outputs_performances", exist_ok=True)
@@ -20,10 +21,10 @@ if not os.path.exists(csv_path):
 print(f"Chargement des donnees depuis {csv_path}...")
 df = pd.read_csv(csv_path)
 
-# --- CONFIGURATION DU FILTRAGE DE TEMPS ---
-FILTRER_DATES = True      # Passer à True pour limiter l'évaluation à un intervalle spécifique
-DATE_DEBUT = "2022-12-31"  # Date de début (YYYY-MM-DD)
-DATE_FIN = "2024-01-01"    # Date de fin (YYYY-MM-DD)
+# --- CONFIGURATION DU FILTRAGE DE TEMPS (centralisée dans config.py) ---
+FILTRER_DATES = FILTRER_DATES_VISU
+DATE_DEBUT = DATE_DEBUT_VISU
+DATE_FIN = DATE_FIN_VISU
 
 # Nettoyage des données "N/A"
 df.replace("N/A", np.nan, inplace=True)
@@ -78,8 +79,11 @@ print(f"{len(df_valid)} points de comparaison trouves (ICOS ou GOL).")
 MODELES = {
     'DMS':            {'col': 'LST_Sat_DMS (°C)',            'color': '#1f77b4', 'marker': 'o'},
     'TsHARP':         {'col': 'LST_Sat_TsHARP (°C)',         'color': '#d62728', 'marker': 's'},
+    'DMS_Fusion':     {'col': 'LST_Sat_DMS_Fusion (°C)',     'color': '#ff7f0e', 'marker': '^'},
+    'TsHARP_Fusion':  {'col': 'LST_Sat_TsHARP_Fusion (°C)',  'color': '#2ca02c', 'marker': 'v'},
     'Raw B10 (30m)':  {'col': 'LST_Sat_Raw_30m (°C)',        'color': '#8c564b', 'marker': 'x'},
     'Raw B10 (100m)': {'col': 'LST_Sat_Raw_100m (°C)',       'color': '#e377c2', 'marker': '*'},
+
 }
 
 # Filtrer uniquement les modèles dont les colonnes existent

@@ -15,8 +15,8 @@ from config import LOGGER, SITES_PILOTES, BANDS_OF_INTEREST, OUTPUT_DIR, lt, max
 from Utils import get_bbox_from_point
 
 # Imports locaux du module
-import Transform.processor as processor
-import Transform.visualizer as visualizer
+import Transform.Landsat.processor_landsat as processor
+import Transform.common.visualizer as visualizer
 def main():
     LOGGER.info("🚀 DÉBUT DE LA PHASE 2 : TRANSFORMATION")
     

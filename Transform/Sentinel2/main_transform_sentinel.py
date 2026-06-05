@@ -10,8 +10,8 @@ import rasterio
 from config import LOGGER, SITES_PILOTES, BANDS_OF_INTEREST_S2, OUTPUT_DIR, max_nuages_rejet, min_couv_rejet, couverture_parfaite, max_jours_fusion
 from Utils import get_bbox_from_point
 
-import Transform.processor_sentinel as processor_s2
-import Transform.visualizer as visualizer
+import Transform.Sentinel2.processor_sentinel as processor_s2
+import Transform.common.visualizer as visualizer
 
 def main():
     LOGGER.info("🚀 DÉBUT DE LA PHASE 2 SENTINEL-2 : TRANSFORMATION")

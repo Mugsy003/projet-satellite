@@ -13,11 +13,24 @@ from sklearn.ensemble import RandomForestRegressor
 import xgboost as xgb
 from sklearn.metrics import mean_squared_error, r2_score
 from config import SITES_PILOTES, LOGGER
+import json
 
 # --- CONFIGURATION BASE ---
 DOSSIER_BASE = r"Outputs"
-n_estimators=75
-max_depth=7
+n_estimators = 100
+max_depth = 10
+
+def load_hyperparams():
+    config_path = "hyperparams_tmp.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return None
+    return None
+
+HYPERPARAMS = load_hyperparams()
 
 def aggregate_3x3(matrice_2d):
     """Regroupe les pixels par blocs de 3x3 et calcule la moyenne.
@@ -183,11 +196,42 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         X_train_90m, y_train_90m, test_size=0.2, random_state=42
     )
 
-    modele = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42, n_jobs=-1)
+    if HYPERPARAMS is not None:
+        model_type = HYPERPARAMS.get("model_type", "RandomForest")
+        if model_type == "LightGBM":
+            from lightgbm import LGBMRegressor
+            modele = LGBMRegressor(
+                n_estimators=HYPERPARAMS.get("n_estimators", 100),
+                max_depth=HYPERPARAMS.get("max_depth", 10),
+                learning_rate=HYPERPARAMS.get("learning_rate", 0.1),
+                num_leaves=HYPERPARAMS.get("num_leaves", 31),
+                subsample=HYPERPARAMS.get("subsample", 1.0),
+                random_state=42,
+                n_jobs=-1,
+                verbose=-1
+            )
+        else:
+            modele = RandomForestRegressor(
+                n_estimators=HYPERPARAMS.get("n_estimators", 100),
+                max_depth=HYPERPARAMS.get("max_depth", 10),
+                min_samples_split=HYPERPARAMS.get("min_samples_split", 2),
+                min_samples_leaf=HYPERPARAMS.get("min_samples_leaf", 1),
+                max_features=HYPERPARAMS.get("max_features", 1.0),
+                random_state=42, 
+                n_jobs=-1
+            )
+    else:
+        modele = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42, n_jobs=-1)
+
     modele.fit(X_train, y_train)
 
     LOGGER.info("   🏆 Classement des indices :")
     importances = modele.feature_importances_
+    # Si c'est LightGBM, les importances sont des "splits" et pas des fractions. On les normalise.
+    if hasattr(modele, 'booster_'):
+        if importances.sum() > 0:
+            importances = importances / importances.sum()
+            
     indices_tries = np.argsort(importances)[::-1]
     for i in indices_tries:
         LOGGER.info(f"      - {noms_features[i]} : {importances[i] * 100:.1f} %")

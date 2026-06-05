@@ -28,8 +28,8 @@ from config import SITES_PILOTES, LOGGER, TIME_MARGIN_MINUTES
 
 # --- CONFIGURATION ---
 DOSSIER_BASE = r"Outputs"
-n_estimators = 200
-max_depth = 20
+n_estimators = 100
+max_depth = 10
 
 # Block size pour dégrader les indices S2 (10m) à la résolution ECOSTRESS (~70m)
 # 7 pixels de 10m = 70m

@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from config import LOGGER, SITES_PILOTES, OUTPUT_DIR, radius_km
 from Utils import get_bbox_from_point
 
-import Transform.processor_ecostress as processor_eco
+import Transform.ECOSTRESS.processor_ecostress as processor_eco
 
 
 def save_ecostress_lst_maps(liste_images, pays, output_dir):

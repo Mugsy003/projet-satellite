@@ -5,7 +5,7 @@ import os
 import json
 from config import LOGGER, SITES_PILOTES, TIME_OF_INTEREST, PREVIEWS_DIR, OUTPUT_DIR, ltd, radius_km, nb_images, ignorer_existants
 from Utils import get_bbox_from_point
-import Extraction.stac_client as stac_client
+import Extraction.Landsat.stac_client_landsat as stac_client
 
 
 def main():
