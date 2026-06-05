@@ -14,17 +14,17 @@ def objective(trial):
     hyperparams = {"model_type": model_type}
     
     if model_type == "RandomForest":
-        hyperparams["n_estimators"] = trial.suggest_int("n_estimators", 100, 500, step=50)
-        hyperparams["max_depth"] = trial.suggest_int("max_depth", 15, 50)
-        hyperparams["min_samples_split"] = trial.suggest_int("min_samples_split", 2, 10)
-        hyperparams["min_samples_leaf"] = trial.suggest_int("min_samples_leaf", 1, 5)
-        hyperparams["max_features"] = trial.suggest_float("max_features", 0.5, 1.0)
+        hyperparams["n_estimators"] = trial.suggest_int("n_estimators", 50, 1000, step=25)
+        hyperparams["max_depth"] = trial.suggest_int("max_depth", 5, 100)
+        hyperparams["min_samples_split"] = trial.suggest_int("min_samples_split", 2, 50)
+        hyperparams["min_samples_leaf"] = trial.suggest_int("min_samples_leaf", 1, 10)
+        hyperparams["max_features"] = trial.suggest_float("max_features", 0.1, 1.0, step=0.1)
     else:
-        hyperparams["n_estimators"] = trial.suggest_int("n_estimators", 100, 500, step=50)
-        hyperparams["max_depth"] = trial.suggest_int("max_depth", 10, 40)
+        hyperparams["n_estimators"] = trial.suggest_int("n_estimators", 50, 1000, step=25)
+        hyperparams["max_depth"] = trial.suggest_int("max_depth", 5, 100)
         hyperparams["learning_rate"] = trial.suggest_float("learning_rate", 0.01, 0.2, log=True)
-        hyperparams["num_leaves"] = trial.suggest_int("num_leaves", 31, 256)
-        hyperparams["subsample"] = trial.suggest_float("subsample", 0.5, 1.0)
+        hyperparams["num_leaves"] = trial.suggest_int("num_leaves", 2, 512)
+        hyperparams["subsample"] = trial.suggest_float("subsample", 0.1, 1.0, step=0.1)
         
     # Ecrire dans un fichier temporaire
     with open("hyperparams_tmp.json", "w") as f:
