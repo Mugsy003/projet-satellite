@@ -74,6 +74,18 @@ def main():
         extract_paires()
     resultats["extraction_paires_eco_s2"] = run_step("extraction_paires_eco_s2", step_extraction_paires)
 
+    # 1e. Extraction Sentinel-3
+    def step_extraction_sentinel3():
+        from Extraction.Sentinel3.main_extract_sentinel3 import main as extract_s3
+        extract_s3()
+    resultats["extraction_sentinel3"] = run_step("extraction_sentinel3", step_extraction_sentinel3)
+
+    # 1f. Extraction Paires Sentinel-3 + Sentinel-2
+    def step_extraction_paires_s3_s2():
+        from Extraction.Sentinel2.main_extract_paires_s3_s2 import main as extract_paires_s3
+        extract_paires_s3()
+    resultats["extraction_paires_s3_s2"] = run_step("extraction_paires_s3_s2", step_extraction_paires_s3_s2)
+
     # ========================================
     # 2. TRANSFORMATION
     # ========================================
@@ -95,6 +107,12 @@ def main():
         from Transform.Sentinel2.main_transform_sentinel import main as transform_sentinel
         transform_sentinel()
     resultats["transform_sentinel"] = run_step("transform_sentinel", step_transform_sentinel)
+
+    # 2d. Transformation Sentinel-3
+    def step_transform_sentinel3():
+        from Transform.Sentinel3.main_transform_sentinel3 import main as transform_s3
+        transform_s3()
+    resultats["transform_sentinel3"] = run_step("transform_sentinel3", step_transform_sentinel3)
 
     # ========================================
     # 3. MACHINE LEARNING (Sharpening)
@@ -123,6 +141,18 @@ def main():
         from Transform.Fusion.tsharp_fusion import main as fusion_tsharp
         fusion_tsharp()
     resultats["fusion_tsharp"] = run_step("fusion_tsharp", step_fusion_tsharp)
+
+    # 3e. DMS Sharpening Sentinel-3 (pur)
+    def step_dms_sentinel3():
+        from Transform.Sentinel3.dms_sharpening_sentinel3 import main as dms_s3
+        dms_s3()
+    resultats["sharpening_dms_sentinel3"] = run_step("sharpening_dms_sentinel3", step_dms_sentinel3)
+
+    # 3f. DMS Fusion (Sentinel-3 + S2)
+    def step_fusion_dms_s3_s2():
+        from Transform.Fusion.dms_sharpening_s3_s2 import main as dms_s3_s2
+        dms_s3_s2()
+    resultats["fusion_dms_s3_s2"] = run_step("fusion_dms_s3_s2", step_fusion_dms_s3_s2)
 
     # ========================================
     # 4. VALIDATION

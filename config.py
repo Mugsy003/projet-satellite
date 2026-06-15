@@ -32,7 +32,8 @@ TIME_MARGIN_MINUTES = 60
 lt = 99
 ltd = 50
 radius_km = 3
-nb_images = 50
+radius_km_s3 = 25  # Rayon élargi pour S3 
+nb_images = 30
 max_nuages_rejet = 70
 max_jours_fusion = 0
 min_couv_rejet = 40
@@ -91,14 +92,19 @@ PIPELINE_STEPS = {
     "extraction_landsat": True,
     "extraction_ecostress": True,
     "extraction_sentinel": True,
+    "extraction_sentinel3": True,
     "extraction_paires_eco_s2": True,
+    "extraction_paires_s3_s2": True,
     "transform_landsat": True,
     "transform_ecostress": True,
     "transform_sentinel": True,
+    "transform_sentinel3": True,
     "sharpening_dms_landsat": True,
     "sharpening_tsharp_landsat": True,
+    "sharpening_dms_sentinel3": True,
     "fusion_dms": True,
     "fusion_tsharp": True,
+    "fusion_dms_s3_s2": True,
     "comparaison_icos": True,
     "visualisation": True,
 }

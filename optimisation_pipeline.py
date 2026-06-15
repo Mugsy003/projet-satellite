@@ -7,6 +7,12 @@ import numpy as np
 
 CSV_PATH = r"Outputs\Validation_Saisonniere_LST.csv"
 
+# --- Paramètres de période d'évaluation ---
+# Format: 'YYYY-MM-DD'. Mettre None pour ne pas filtrer.
+START_DATE = "2022-12-31" 
+END_DATE = "2024-01-01"
+# ------------------------------------------
+
 def objective(trial):
     # 1. Suggerer les hyperparamètres
     model_type = trial.suggest_categorical("model_type", ["RandomForest", "LightGBM"])
@@ -48,6 +54,16 @@ def objective(trial):
             return float('inf')
             
         df = pd.read_csv(CSV_PATH)
+        
+        # Filtrer sur la période souhaitée
+        if START_DATE is not None or END_DATE is not None:
+            # On s'assure que la colonne est au format datetime
+            df['Date_Satellite'] = pd.to_datetime(df['Date_Satellite'])
+            if START_DATE is not None:
+                df = df[df['Date_Satellite'] >= pd.to_datetime(START_DATE)]
+            if END_DATE is not None:
+                df = df[df['Date_Satellite'] <= pd.to_datetime(END_DATE)]
+                
         # On calcule la RMSE pour le DMS (Landsat)
         mask = pd.notna(df['LST_Sat_DMS (°C)']) & pd.notna(df['ICOS_LST (°C)'])
         y_pred = df.loc[mask, 'LST_Sat_DMS (°C)']

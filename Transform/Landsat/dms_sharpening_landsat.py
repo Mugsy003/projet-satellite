@@ -254,7 +254,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     for i in range(X_matrice_30m.shape[1]):
         masque_valide_30m &= np.isfinite(X_matrice_30m[:, i])
 
-    # L'IA génère la carte HD !
+    # L'IA génère la carte HD
     y_pred_total_30m_1d = np.full_like(y_30m_1d, np.nan) 
     y_pred_total_30m_1d[masque_valide_30m] = modele.predict(X_matrice_30m[masque_valide_30m])
     

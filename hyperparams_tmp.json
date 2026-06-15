@@ -1,1 +1,1 @@
-{"model_type": "LightGBM", "n_estimators": 925, "max_depth": 58, "learning_rate": 0.035723164045071656, "num_leaves": 327, "subsample": 0.30000000000000004}
+{"model_type": "RandomForest", "n_estimators": 900, "max_depth": 66, "min_samples_split": 33, "min_samples_leaf": 9, "max_features": 0.9}

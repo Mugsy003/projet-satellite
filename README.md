@@ -1,6 +1,6 @@
 # 🌍 Projet Satellite : Extraction, Désagrégation et Validation LST
 
-Ce projet a pour but de télécharger des données satellitaires multi-capteurs (Landsat 8/9, Sentinel-2, ECOSTRESS), d'en extraire la Température de Surface Terrestre (LST) et des indices optiques, puis d'appliquer des algorithmes de *downscaling spatial* (sharpening) pour améliorer la résolution spatiale de la LST.
+Ce projet a pour but de télécharger des données satellitaires multi-capteurs (Landsat 8/9, Sentinel-2, Sentinel-3, ECOSTRESS), d'en extraire la Température de Surface Terrestre (LST) et des indices optiques, puis d'appliquer des algorithmes de *downscaling spatial* (sharpening) pour améliorer la résolution spatiale de la LST.
 Enfin, le projet compare ces températures satellitaires avec des mesures de stations au sol (réseaux ICOS et NOAA).
 
 ## 🚀 Le Pipeline Automatisé (`main.py`)
@@ -43,6 +43,7 @@ projet-satellite/
 │   ├── Landsat/
 │   ├── ECOSTRESS/
 │   ├── Sentinel2/
+│   ├── Sentinel3/                    # NOUVEAU: Extraction NetCDF (LST SLSTR & Optique Synergy)
 │   ├── ICOS/                         # Téléchargement des vraies données météo
 │   └── utils/
 │
@@ -50,7 +51,8 @@ projet-satellite/
 │   ├── Landsat/                      # Sharpening intra-capteur (100m -> 30m)
 │   ├── ECOSTRESS/
 │   ├── Sentinel2/
-│   ├── Fusion/                       # Fusion multi-capteur (ECOSTRESS+S2, 70m -> 10m)
+│   ├── Sentinel3/                    # Sharpening intra-capteur (1km -> 300m)
+│   ├── Fusion/                       # Fusion multi-capteur (ECOSTRESS+S2, S3+S2)
 │   └── common/
 │
 ├── Analyse/                          # Scripts de statistiques et études annexes

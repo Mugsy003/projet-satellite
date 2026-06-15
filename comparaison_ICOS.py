@@ -1,5 +1,6 @@
 import os
 import re
+
 import rioxarray
 import pandas as pd
 import numpy as np
@@ -128,6 +129,29 @@ for site, coords in SITES_PILOTES.items():
                 elif "LST_Sharpened_TsHARP_Fusion" in f:
                     dict_dates_paths[dt]['tsharp_fusion'] = os.path.join(tif_folder, f)
 
+    # --- Filtre de qualité nuageuse (seuil 30% de pixels invalides dans le B10) ---
+    SEUIL_NUAGES_COMPARAISON = 30  # %
+    dates_a_exclure = set()
+    for dt, paths in dict_dates_paths.items():
+        b10_path = paths.get('b10')
+        if b10_path and os.path.exists(b10_path):
+            try:
+                _ds = rioxarray.open_rasterio(b10_path)
+                _data = _ds.values.squeeze()
+                _ds.close()
+                _total = _data.size
+                _valides = np.count_nonzero(np.isfinite(_data) & (_data > -50) & (_data < 80))
+                _pct_nuages = (1 - _valides / _total) * 100
+                if _pct_nuages > SEUIL_NUAGES_COMPARAISON:
+                    dates_a_exclure.add(dt)
+                    print(f"   🚫 {dt.strftime('%Y-%m-%d')} exclue de la comparaison (nuages réels: {_pct_nuages:.1f}%)")
+            except Exception:
+                pass
+
+    for dt in dates_a_exclure:
+        del dict_dates_paths[dt]
+
+
     if os.path.exists(eco_folder):
         for f in os.listdir(eco_folder):
             dt = extract_datetime_from_filename(f)
@@ -216,7 +240,7 @@ for site, coords in SITES_PILOTES.items():
                 ndvi_sat = rds_ndvi.sel(x=x_p, y=y_p, method="nearest").values[0]
 
             # --- Émissivité dynamique basée sur le NDVI ---
-            # fraction_vegetation selon la méthode de Sobrino et al.
+            # Méthode Sobrino et al. (2004) : seuils NDVI fixes globaux.
             NDVI_SOL = 0.2   # NDVI typique d'un sol nu
             NDVI_VEG = 0.86  # NDVI typique d'une végétation dense
             if pd.notna(ndvi_sat):
