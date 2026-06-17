@@ -2,7 +2,7 @@ import os
 import requests
 import pystac_client
 import planetary_computer
-from config import LOGGER, min_couv_rejet
+from config import LOGGER, ltd
 
 def connect_to_catalog():
     """Établit et retourne la connexion authentifiée au catalogue STAC."""
@@ -15,9 +15,9 @@ def connect_to_catalog():
 def search_images_s3_lst(catalog, bbox, time_of_interest, pays):
     """Recherche les images SLSTR LST (Thermique ~1km) de Sentinel-3.
     Applique un filtre sur `eo:cloud_cover` en utilisant le seuil défini
-    dans `config.min_couv_rejet`.
+    dans `config.ltd`.
     """
-    max_cloud = min_couv_rejet
+    max_cloud = ltd
     # Essayer de filtrer côté STAC via `query` puis appliquer un filtre de
     # secours si la propriété est absente.
     search = catalog.search(
@@ -33,7 +33,7 @@ def search_images_s3_olci(catalog, bbox, time_of_interest, pays):
     Nous utilisons 'sentinel-3-synergy-syn-l2-netcdf' pour avoir les réflectances de surface.
     Applique un filtre sur `eo:cloud_cover`.
     """
-    max_cloud = min_couv_rejet
+    max_cloud = ltd
     search = catalog.search(
         collections=["sentinel-3-synergy-syn-l2-netcdf"],
         bbox=bbox,

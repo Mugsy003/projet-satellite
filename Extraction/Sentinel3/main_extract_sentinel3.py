@@ -36,8 +36,8 @@ def main():
                 if ecart_minutes <= TIME_MARGIN_MINUTES:
                     # On a un couple complet (Thermique S3 + Optique S3)
                     couples_valides.append({
-                        "thermique": item_t.to_dict(),
-                        "optique": item_o.to_dict(),
+                        "thermique": item_t.id,
+                        "optique": item_o.id,
                         "ecart_minutes": ecart_minutes,
                         "date": time_t.strftime("%Y-%m-%d")
                     })
@@ -45,19 +45,12 @@ def main():
         
         LOGGER.info(f"   ✅ {len(couples_valides)} paires complètes S3 (SLSTR + Synergy) trouvées.")
         
-        # 4. Sauvegarde du manifeste et d'un JSON listant les dates à faible couverture
+        # 4. Sauvegarde du manifeste principal
         if couples_valides:
             chemin_manifeste = os.path.join(OUTPUT_DIR, f"manifest_extraction_S3_{nom_site}.json")
             with open(chemin_manifeste, "w") as f:
                 json.dump(couples_valides, f, indent=4)
             LOGGER.info(f"   💾 Manifeste sauvegardé : {chemin_manifeste}")
-
-            # JSON des dates avec faible couverture (extraites)
-            dates_lowcloud = [c.get("date") for c in couples_valides]
-            chemin_dates = os.path.join(OUTPUT_DIR, f"manifest_extraction_S3_{nom_site}_lowcloud_dates.json")
-            with open(chemin_dates, "w") as f:
-                json.dump(dates_lowcloud, f, indent=2)
-            LOGGER.info(f"   💾 Dates faible couverture sauvegardées : {chemin_dates}")
             
     LOGGER.info("\n✅ EXTRACTION SENTINEL-3 TERMINÉE.")
 
