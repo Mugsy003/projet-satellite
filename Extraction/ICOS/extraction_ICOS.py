@@ -77,7 +77,7 @@ def main():
         df['LST_Calculee'] = ((df['LW_OUT_Consolide'] - (1 - emissivite) * df['LW_IN_Consolide']) / (emissivite * sigma))**0.25 - 273.15
 
         # 5. Filtrage pour l'heure Landsat (10h20 - 10h40)
-        df_validation = df.between_time('10:20', '10:40')
+        df_validation = df
 
         # On ne garde que les colonnes finales pour que le CSV soit propre
         colonnes_finales = ['LW_IN_Consolide', 'LW_OUT_Consolide', 'LST_Calculee']
