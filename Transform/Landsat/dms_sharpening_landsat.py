@@ -17,8 +17,11 @@ import json
 
 # --- CONFIGURATION BASE ---
 DOSSIER_BASE = r"Outputs"
-n_estimators = 100
-max_depth = 10
+n_estimators = 1000
+max_depth = 65
+min_samples_split = 33
+min_samples_leaf = 1
+max_features = 1.0
 
 def load_hyperparams():
     config_path = "hyperparams_tmp.json"
@@ -221,7 +224,15 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
                 n_jobs=-1
             )
     else:
-        modele = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42, n_jobs=-1)
+        modele = RandomForestRegressor(
+            n_estimators=n_estimators, 
+            max_depth=max_depth, 
+            min_samples_split=min_samples_split,
+            min_samples_leaf=min_samples_leaf,
+            max_features=max_features,
+            random_state=42, 
+            n_jobs=-1
+        )
 
     modele.fit(X_train, y_train)
 
