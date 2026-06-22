@@ -17,9 +17,8 @@ import json
 
 # --- CONFIGURATION BASE ---
 DOSSIER_BASE = r"Outputs"
-n_estimators = 1000
-max_depth = 65
-min_samples_split = 33
+n_estimators = 100
+max_depth = 10
 min_samples_leaf = 1
 max_features = 1.0
 
@@ -169,14 +168,14 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         masque_valide_90m &= np.isfinite(X_matrice_90m[:, i])
 
 # --- NOUVEAUTÉ : Le filtrage par homogénéité ---
-    LOGGER.info("   🧹 Sélection des pixels d'entraînement (Seuil de pureté : < 20% de variance)...")
+    LOGGER.info("   🧹 Sélection des pixels d'entraînement (Seuil de pureté : < 50% de variance)...")
     
     # CORRECTION ICI : On crée un dictionnaire temporaire sans les coordonnées 
     # pour ne pas fausser le calcul de la variance interne
     X_dict_pour_masque = {k: v for k, v in X_dict_30m.items() if k not in ['Coord_X', 'Coord_Y']}
     
     # On calcule le masque uniquement sur les variables physiques
-    masque_homogene_1d = calculate_homogeneity_mask(X_dict_pour_masque, threshold=0.20)
+    masque_homogene_1d = calculate_homogeneity_mask(X_dict_pour_masque, threshold=0.50)
 
     # On combine les deux conditions : Le pixel doit être sans NaN ET homogène
     masque_final_entrainement = masque_valide_90m & masque_homogene_1d

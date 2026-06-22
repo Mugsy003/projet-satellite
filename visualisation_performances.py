@@ -57,6 +57,11 @@ existing_pred_cols = [c for c in pred_cols if c in df.columns]
 df_valid = df.dropna(subset=['Ground_LST (°C)']).copy()
 df_valid = df_valid[df_valid[existing_pred_cols].notna().any(axis=1)]
 
+# Forcer DMS et TsHARP à utiliser exactement les mêmes points pour être comparables
+cols_base = [c for c in ['LST_Sat_DMS (°C)', 'LST_Sat_TsHARP (°C)'] if c in df_valid.columns]
+if len(cols_base) > 1:
+    df_valid = df_valid.dropna(subset=cols_base)
+
 # Filtrage par intervalle de temps
 if 'Date_Satellite' in df_valid.columns:
     df_valid['Date_Satellite'] = pd.to_datetime(df_valid['Date_Satellite'])
