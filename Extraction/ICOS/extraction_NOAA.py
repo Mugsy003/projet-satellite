@@ -92,11 +92,35 @@ def main():
         df['LW_IN_Consolide'] = df['dw_ir']
         df['LW_OUT_Consolide'] = df['uw_ir']
 
+        # --- Variables météo supplémentaires (pour TTME) ---
+        meteo_mapping = {
+            'TA_Consolide':     'temp',       # Température de l'air (°C)
+            'RH_Consolide':     'rh',         # Humidité relative (%)
+            'WS_Consolide':     'windspd',    # Vitesse du vent (m/s)
+            'SW_IN_Consolide':  'dw_solar',   # Rayonnement shortwave entrant (W/m²)
+            'SW_OUT_Consolide': 'uw_solar',   # Rayonnement shortwave sortant (W/m²)
+            'PA_Consolide':     'pressure',   # Pression atmosphérique (mb)
+        }
+        for col_out, col_in in meteo_mapping.items():
+            if col_in in df.columns:
+                df[col_out] = df[col_in]
+                print(f"   ✅ {col_out} extrait depuis '{col_in}'")
+            else:
+                print(f"   ⚠️ {col_out} non disponible (colonne '{col_in}' absente)")
+
         # Calcul de la température de surface (LST)
         sigma = 5.67e-8
         emissivite = 0.98  # Valeur par défaut ajustable
         
         df['LST_Calculee'] = ((df['LW_OUT_Consolide'] - (1 - emissivite) * df['LW_IN_Consolide']) / (emissivite * sigma))**0.25 - 273.15
+
+        # Calcul du rayonnement net si SW disponible
+        if 'SW_IN_Consolide' in df.columns and 'SW_OUT_Consolide' in df.columns:
+            df['Rn_Consolide'] = (
+                (df['SW_IN_Consolide'] - df['SW_OUT_Consolide']) + 
+                (df['LW_IN_Consolide'] - df['LW_OUT_Consolide'])
+            )
+            print(f"   ✅ Rayonnement net (Rn) calculé.")
 
         # 4. Filtrage dynamique pour l'heure Landsat en temps universel (UTC)
         # Landsat passe à environ 10h30 heure solaire locale. On convertit en UTC :
@@ -122,6 +146,13 @@ def main():
 
         # Colonnes finales propres
         colonnes_finales = ['LW_IN_Consolide', 'LW_OUT_Consolide', 'LST_Calculee']
+        # Ajouter les variables météo disponibles
+        for col_out in meteo_mapping.keys():
+            if col_out in df.columns:
+                colonnes_finales.append(col_out)
+        if 'Rn_Consolide' in df.columns:
+            colonnes_finales.append('Rn_Consolide')
+
         df_final = df_validation[colonnes_finales].dropna(how='all')
 
         if df_final.empty:
