@@ -1,7 +1,7 @@
 # 🌍 Projet Satellite : Extraction, Désagrégation et Validation LST
 
 Ce projet a pour but de télécharger des données satellitaires multi-capteurs (Landsat 8/9, Sentinel-2, Sentinel-3, ECOSTRESS), d'en extraire la Température de Surface Terrestre (LST) et des indices optiques, puis d'appliquer des algorithmes de *downscaling spatial* (sharpening) pour améliorer la résolution spatiale de la LST.
-Enfin, le projet compare ces températures satellitaires avec des mesures de stations au sol (réseaux ICOS et NOAA).
+Enfin, le projet compare ces températures satellitaires avec des mesures de stations au sol (réseaux ICOS et NOAA), et modélise l'**Évapotranspiration (ET)** de la végétation en s'appuyant sur le modèle TTME (Two-source Trapezoid Model for Evapotranspiration) couplé à des données météorologiques (ERA5 ou In-Situ).
 
 ## 🚀 Le Pipeline Automatisé (`main.py`)
 
@@ -35,7 +35,8 @@ Le code est structuré de façon modulaire, séparé par mission spatiale :
 projet-satellite/
 ├── config.py                         # Fichier de configuration central
 ├── main.py                           # Orchestrateur global
-├── comparaison_ICOS.py               # Validation des pixels avec les stations
+├── comparaison_ICOS.py               # Validation des pixels LST avec les stations
+├── calcul_ET.py                      # 💧 Modélisation de l'Évapotranspiration (TTME)
 ├── visualisation_performances.py     # Création des graphiques (boxplots)
 ├── optimisation_pipeline.py          # Tuning des hyperparamètres via Optuna
 │
@@ -44,7 +45,8 @@ projet-satellite/
 │   ├── ECOSTRESS/
 │   ├── Sentinel2/
 │   ├── Sentinel3/                    # NOUVEAU: Extraction NetCDF (LST SLSTR & Optique Synergy)
-│   ├── ICOS/                         # Téléchargement des vraies données météo
+│   ├── ICOS/                         # Téléchargement des données météo in-situ (Reference)
+│   ├── ERA5/                         # Téléchargement des forçages météo ERA5 (Copernicus)
 │   └── utils/
 │
 ├── Transform/                        # Calcul des Indices, LST et Sharpening
@@ -75,9 +77,30 @@ python optimisation_pipeline.py
 
 ---
 
+## 💧 Modélisation de l'Évapotranspiration (ET)
+
+Le projet inclut désormais un moteur de modélisation de l'Évapotranspiration à l'échelle du pixel, via l'algorithme **TTME** (Two-source Trapezoid Model for Evapotranspiration).
+
+Ce modèle sépare l'évaporation du sol (Soil) de la transpiration des plantes (Canopy) en construisant un espace théorique LST-NDVI (Trapèze) contraint par la thermodynamique (Conservation de l'énergie de rayonnement $R_n$).
+
+### Comment lancer le calcul de l'ET ?
+Vous pouvez calculer l'ET en utilisant soit les données météo parfaites du sol (ICOS), soit les données météo spatiales (ERA5) :
+```bash
+# Calcul avec la météo In-Situ
+python calcul_ET.py --source icos
+
+# Calcul avec la météo globale Copernicus (ERA5)
+python calcul_ET.py --source era5
+```
+Les scripts dans le dossier `Analyse/` (comme `generer_graphes_par_site.py`) permettent ensuite de générer des séries temporelles croisant les résultats satellitaires avec les "Ground Truth" des tours à flux.
+
+---
+
 ## 📊 Outputs Générés
 
 Tous les résultats sont générés dans le dossier `Outputs/` :
-- `Outputs/Validation_Saisonniere_LST.csv` : Bilan global croisant le satellite et le terrain.
-- `Outputs_performances/` : Graphiques finaux (RMSE, MAE, Boxplots).
-- `Outputs/Serie_Temporelle_{Site}_[Mission]/` : Les images TIF générées et les indices optiques en haute résolution.
+- `Outputs/Validation_Saisonniere_LST.csv` : Bilan global croisant la LST satellite et le terrain.
+- `Outputs/Resultats_ET_TTME.csv` : Résultats des calculs d'Évapotranspiration (Flux de chaleur, ET mm/h).
+- `Outputs_performances/` : Graphiques finaux d'erreur LST (RMSE, MAE, Boxplots).
+- `Outputs/comparaisons ET/` : Graphiques de suivi temporel de l'Évapotranspiration par site.
+- `Outputs/Serie_Temporelle_{Site}_[Mission]/` : Les images TIF générées (LST, NDVI, ET_map...).
