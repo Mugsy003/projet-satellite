@@ -26,7 +26,7 @@ for directory in [OUTPUT_DIR, PREVIEWS_DIR]:
 # --- Constantes du Projet ---
 TIME_OF_INTEREST = "2022-12-31/2024-01-01"
 
-BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16"]
+BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16", "swir22"]
 BANDS_OF_INTEREST_S2 = ["B02", "B03", "B04", "B08", "B11", "SCL"]
 TIME_MARGIN_MINUTES = 60
 lt = 99
@@ -61,7 +61,42 @@ SITES_PILOTES = {
    
 }
 
-
+# --- Paramètres TTME spécifiques par site ---
+SITE_TTME_PARAMS = {
+    "default": {
+        "NDVI_SOL": 0.15,
+        "NDVI_VEG": 0.90,
+        "Z0M_SOIL": 0.005,
+        "Z0H_SOIL": 0.0005,
+        "Z0M_VEG": 0.10,
+        "Z0H_VEG": 0.01,
+        "C_G_SOIL": 0.30,
+        "C_G_VEG": 0.05,
+        "EMISSIVITY": 0.95  # Ajusté de 0.98 à 0.95 pour réchauffer LST_Calculee
+    },
+    "Grignon": {
+        "NDVI_SOL": 0.15,
+        "NDVI_VEG": 0.85,
+        "Z0M_SOIL": 0.01,
+        "Z0H_SOIL": 0.001,
+        "Z0M_VEG": 0.15,   
+        "Z0H_VEG": 0.015,
+        "C_G_SOIL": 0.30,
+        "C_G_VEG": 0.05,
+        "EMISSIVITY": 0.96
+    },
+    "Borgo Cioffi": {
+        "NDVI_SOL": 0.12,
+        "NDVI_VEG": 0.88,
+        "Z0M_SOIL": 0.005,
+        "Z0H_SOIL": 0.0005,
+        "Z0M_VEG": 0.12,
+        "Z0H_VEG": 0.012,
+        "C_G_SOIL": 0.35,  
+        "C_G_VEG": 0.05,
+        "EMISSIVITY": 0.94  # Sol plus sec, émissivité plus faible
+    }
+}
 
 PIDS_ICOS = {
     "Lamasquere": 'tZlz-zEjgsdC11OtOL2Ijz6Z',

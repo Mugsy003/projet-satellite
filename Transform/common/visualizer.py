@@ -243,7 +243,12 @@ def save_indices_maps(liste_images, pays, output_dir):
         "SAVI": {"cmap": "RdYlGn", "vmin": -0.2, "vmax": 0.8, "label": "Végétation (Sol aride)"},
         "LST":  {"cmap": "inferno", "vmin": 10, "vmax": 55, "label": "Température (°C)"},
         "Thermique_B10": {"cmap": "inferno", "vmin": 10, "vmax": 55, "label": "Température Brute (°C)"},
-        "Emissivite": {"cmap": "viridis", "vmin": 0.9, "vmax": 1.0, "label": "Emissivité (Large Bande)"}
+        "Emissivite": {"cmap": "viridis", "vmin": 0.9, "vmax": 1.0, "label": "Emissivité (Large Bande)"},
+        "Reflectance_B2": {"cmap": "gray", "vmin": 0.0, "vmax": 0.3, "label": "Réflectance B2 (Bleu)"},
+        "Reflectance_B4": {"cmap": "gray", "vmin": 0.0, "vmax": 0.3, "label": "Réflectance B4 (Rouge)"},
+        "Reflectance_B5": {"cmap": "gray", "vmin": 0.0, "vmax": 0.6, "label": "Réflectance B5 (NIR)"},
+        "Reflectance_B6": {"cmap": "gray", "vmin": 0.0, "vmax": 0.5, "label": "Réflectance B6 (SWIR1)"},
+        "Reflectance_B7": {"cmap": "gray", "vmin": 0.0, "vmax": 0.5, "label": "Réflectance B7 (SWIR2)"}
     }
     
     for item in liste_images:

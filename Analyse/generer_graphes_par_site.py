@@ -9,6 +9,7 @@ import matplotlib.dates as mdates
 OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Outputs")
 CSV_ERA5 = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "Comparaison_ET_ICOS_vs_ERA5.csv")
 CSV_PURE = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "Comparaison_ET_Landsat_vs_PureICOS.csv")
+CSV_ERA5_B10 = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5_B10.csv")
 OUT_DIR = os.path.join(OUTPUTS_DIR, "comparaisons ET")
 
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -32,9 +33,18 @@ def main():
     else:
         df = df_era5
         
+    has_b10 = False
+    if os.path.exists(CSV_ERA5_B10):
+        df_b10 = pd.read_csv(CSV_ERA5_B10)
+        df_b10['Date'] = pd.to_datetime(df_b10['Date'])
+        df_b10 = df_b10.rename(columns={'ET_pixel (mm/h)': 'ET_pixel (mm/h)_B10'})
+        df = pd.merge(df, df_b10[['Site', 'Date', 'ET_pixel (mm/h)_B10']], on=['Site', 'Date'], how='left')
+        has_b10 = True
+        
     var_et_icos = 'ET_pixel (mm/h)_ICOS'
     var_et_era5 = 'ET_pixel (mm/h)_ERA5'
     var_et_pure = 'ET_pure_ICOS (mm/h)' if has_pure else None
+    var_et_b10 = 'ET_pixel (mm/h)_B10' if has_b10 else None
     
     sites = df['Site'].unique()
     print(f"📊 Génération des graphiques (3 courbes) pour {len(sites)} sites...")
@@ -50,6 +60,7 @@ def main():
         et_icos = df_site[var_et_icos]
         et_era5 = df_site[var_et_era5]
         et_pure = df_site[var_et_pure] if has_pure else pd.Series([np.nan]*len(df_site))
+        et_b10 = df_site[var_et_b10] if has_b10 else pd.Series([np.nan]*len(df_site))
         
         # Filtrer les NaNs pour la corrélation Pure ICOS vs ERA5
         valid_mask = et_pure.notna() & et_era5.notna()
@@ -97,8 +108,12 @@ def main():
         ax2.plot(df_site['Date'], et_icos, marker='o', linestyle='-', color='forestgreen', label='ET ICOS (LST Landsat)', linewidth=2, alpha=0.8)
         
         # Courbe 3 : ERA5 + Landsat
-        ax2.plot(df_site['Date'], et_era5, marker='s', linestyle='--', color='darkorange', label='ET ERA5 (LST Landsat)', linewidth=2, alpha=0.8)
+        ax2.plot(df_site['Date'], et_era5, marker='s', linestyle='--', color='darkorange', label='ET ERA5 (LST Landsat DMS)', linewidth=2, alpha=0.8)
         
+        # Courbe 4 : ERA5 + Landsat B10
+        if has_b10:
+            ax2.plot(df_site['Date'], et_b10, marker='^', linestyle='-.', color='red', label='ET ERA5 (LST brute B10)', linewidth=2, alpha=0.8)
+            
         ax2.set_xlabel("Date", fontsize=11)
         ax2.set_ylabel("Évapotranspiration (mm/h)", fontsize=11)
         ax2.set_title("Évolution Temporelle", fontsize=13)

@@ -46,8 +46,8 @@ ERA5_VARIABLES = [
     '2m_dewpoint_temperature',              # Td2m en Kelvin (pour calculer RH)
     '10m_u_component_of_wind',              # u10 en m/s
     '10m_v_component_of_wind',              # v10 en m/s
-    'surface_solar_radiation_downwards',    # SW↓ en J/m² (cumulatif sur 1h)
-    'surface_thermal_radiation_downwards',  # LW↓ en J/m² (cumulatif sur 1h)
+    'surface_solar_radiation_downward_clear_sky',    # SW↓_clear en J/m² (cumulatif sur 1h)
+    'surface_thermal_radiation_downward_clear_sky',  # LW↓_clear en J/m² (cumulatif sur 1h)
     'surface_net_solar_radiation',          # SW_net en J/m² (cumulatif)
     'surface_net_thermal_radiation',        # LW_net en J/m² (cumulatif)
     'surface_pressure',                     # Pression en Pa
@@ -261,8 +261,8 @@ def process_era5_netcdf(nc_path, site, lon, lat):
     df['RH_Consolide'] = compute_rh_from_t_td(df['t2m'], df['d2m'])
     
     # 4. Rayonnements (J/m² cumulatif → W/m² instantané)
-    df['SW_IN_Consolide'] = cumulative_to_instantaneous(df['ssrd'])
-    df['LW_IN_Consolide'] = cumulative_to_instantaneous(df['strd'])
+    df['SW_IN_Consolide'] = cumulative_to_instantaneous(df['ssrdc'])
+    df['LW_IN_Consolide'] = cumulative_to_instantaneous(df['strdc'])
     
     # Rayonnement net
     sw_net = cumulative_to_instantaneous(df['ssr'])

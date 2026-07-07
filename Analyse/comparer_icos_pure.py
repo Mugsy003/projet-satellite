@@ -1,4 +1,6 @@
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -64,7 +66,15 @@ def main():
         Tc_max = row['T_c_max (°C)']
         
         # Paramètres géométriques du trapèze
-        beta_i = Tc_max - Ts_max
+        beta_w = Tc_max - Ts_max
+        a = lst_ground - Ta
+        T_warm_at_fc = Ts_max + beta_w * fc
+        a_plus_b = T_warm_at_fc - Ta
+        if a_plus_b > 0.1:
+            ratio = np.clip(a / a_plus_b, 0.0, 1.0)
+        else:
+            ratio = np.nan
+        beta_i = ratio * beta_w
         
         # Décomposition de LST
         Ts = lst_ground - beta_i * fc
@@ -74,24 +84,33 @@ def main():
         Ts = max(Ts, Ta - 5)
         Tc = max(Tc, Ta - 5)
         
-        # Flux de chaleur latente par composante (dérivés des limites)
-        # H_s_max = R_ns - G = 0.7 * (1 - fc) * Rn
-        Rn_s_minus_G = 0.7 * (1 - fc) * Rn
-        Rn_c = fc * Rn
+        # Flux de chaleur dans le sol
+        cg_s = 0.315 if fc < 0.5 else 0.35
+        cg_c = 0.05
         
+        # L'énergie disponible pour chaque pôle pur
+        G_pur_sol = cg_s * Rn
+        G_pur_canopee = cg_c * Rn
+        
+        Rn_s_dispo = Rn - G_pur_sol
+        Rn_c_dispo = Rn - G_pur_canopee
+        
+        # Calcul de la Chaleur Latente par interpolation linéaire
         if Ts_max > Ta:
-            LE_s = Rn_s_minus_G * (Ts_max - Ts) / (Ts_max - Ta)
+            LE_s = Rn_s_dispo * (Ts_max - Ts) / (Ts_max - Ta)
         else:
             LE_s = 0.0
             
         if Tc_max > Ta:
-            LE_c = Rn_c * (Tc_max - Tc) / (Tc_max - Ta)
+            LE_c = Rn_c_dispo * (Tc_max - Tc) / (Tc_max - Ta)
         else:
             LE_c = 0.0
             
-        # LE Total
+        # LE Total : mosaïque
         LE = fc * LE_c + (1 - fc) * LE_s
-        LE = max(LE, 0.0)
+        energie_dispo = Rn - (fc * G_pur_canopee + (1 - fc) * G_pur_sol)
+        
+        LE = np.clip(LE, 0.0, energie_dispo)
         
         # ET en mm/h
         ET = LE * 3600.0 / LAMBDA_V
@@ -111,9 +130,14 @@ def main():
         print("⚠️ Aucune donnée valide trouvée.")
         return
         
-    # Statistiques
+    # Statistiques ET
     et_landsat = df_valid['ET_pixel (mm/h)']
     et_pure = df_valid['ET_pure_ICOS (mm/h)']
+    
+    lst_landsat = df_valid['LST_pixel (°C)']
+    lst_pure = df_valid['LST_ICOS (°C)']
+    
+    bias_lst = np.mean(lst_pure - lst_landsat)
     
     rmse = np.sqrt(mean_squared_error(et_landsat, et_pure))
     bias = np.mean(et_pure - et_landsat)
@@ -122,6 +146,7 @@ def main():
     print("-" * 40)
     print("MÉTRIQUES (Pure ICOS vs Landsat-ICOS)")
     print("-" * 40)
+    print(f"Biais LST = {bias_lst:.2f} °C")
     print(f"RMSE = {rmse:.4f} mm/h")
     print(f"Biais= {bias:.4f} mm/h")
     print(f"R²   = {r2:.4f}")

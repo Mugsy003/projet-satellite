@@ -123,6 +123,7 @@ def process_satellite_timeseries(mes_items, bbox, bands_of_interest, max_jours_f
             blue_ref = landsat_dn_to_reflectance(mosaic_data["blue"].values)
             nir_ref = landsat_dn_to_reflectance(mosaic_data["nir08"].values)
             swir_ref = landsat_dn_to_reflectance(mosaic_data["swir16"].values)
+            swir22_ref = landsat_dn_to_reflectance(mosaic_data["swir22"].values)
 
             thermal_dn = mosaic_data["lwir11"].values
             # Attention: dans Landsat C2 L2, la bande thermique est déjà corrigée en Surface Temperature (LST)
@@ -137,6 +138,11 @@ def process_satellite_timeseries(mes_items, bbox, bands_of_interest, max_jours_f
             empreinte_crs = mosaic_data.odc.geobox.crs.to_wkt()
 
             indices_dict = {
+                "Reflectance_B2": blue_ref,
+                "Reflectance_B4": red_ref,
+                "Reflectance_B5": nir_ref,
+                "Reflectance_B6": swir_ref,
+                "Reflectance_B7": swir22_ref,
                 "NDVI": ndvi_array,
                 "NDWI": indices.calculate_ndwi(green_ref, nir_ref),
                 "NDBI": indices.calculate_ndbi(swir_ref, nir_ref),

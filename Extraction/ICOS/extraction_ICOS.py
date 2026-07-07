@@ -1,4 +1,7 @@
 import os
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import pandas as pd
 import numpy as np
 # pyrefly: ignore [missing-import]
@@ -22,6 +25,8 @@ PREFIXES_METEO = {
     "PA":    {"description": "Pression atmosphérique (kPa)",       "unite": "kPa"},
     "VPD":   {"description": "Déficit de pression de vapeur (hPa)", "unite": "hPa"},
     "P":     {"description": "Précipitations (mm)",                "unite": "mm"},
+    "LE":    {"description": "Chaleur latente (W/m²)",             "unite": "W/m²"},
+    "H":     {"description": "Chaleur sensible (W/m²)",            "unite": "W/m²"},
 }
 
 
@@ -141,7 +146,14 @@ def main():
 
         # Calcul de la température de surface (LST)
         sigma = 5.67e-8
-        emissivite = 0.98  # Valeur pour Gebesee, ajustable par site si besoin
+        
+        # Récupération de l'émissivité depuis la config
+        from config import SITE_TTME_PARAMS
+        emissivite = 0.95  # Valeur par défaut si non spécifiée
+        if site in SITE_TTME_PARAMS and "EMISSIVITY" in SITE_TTME_PARAMS[site]:
+            emissivite = SITE_TTME_PARAMS[site]["EMISSIVITY"]
+        elif "default" in SITE_TTME_PARAMS and "EMISSIVITY" in SITE_TTME_PARAMS["default"]:
+            emissivite = SITE_TTME_PARAMS["default"]["EMISSIVITY"]
 
         df['LST_Calculee'] = ((df['LW_OUT_Consolide'] - (1 - emissivite) * df['LW_IN_Consolide']) / (emissivite * sigma))**0.25 - 273.15
 

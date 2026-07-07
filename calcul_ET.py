@@ -32,7 +32,7 @@ from pyproj import Transformer
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-from config import LOGGER, SITES_PILOTES, OUTPUT_DIR, TIME_MARGIN_MINUTES
+from config import LOGGER, SITES_PILOTES, OUTPUT_DIR, TIME_MARGIN_MINUTES, SITE_TTME_PARAMS
 
 # =============================================================================
 # CONSTANTES PHYSIQUES
@@ -44,20 +44,7 @@ LAMBDA_V  = 2.45e6     # Chaleur latente de vaporisation (J·kg⁻¹) ~2.45 MJ/k
 Z_M       = 2.0        # Hauteur de mesure du vent (m)
 Z_H       = 2.0        # Hauteur de mesure de la température (m)
 
-# Paramètres de rugosité
-Z0M_SOIL  = 0.005      # Longueur de rugosité sol nu (m)
-Z0H_SOIL  = 0.0005     # Longueur de rugosité thermique sol nu (m)
-Z0M_VEG   = 0.10       # Longueur de rugosité canopée (m)
-Z0H_VEG   = 0.01       # Longueur de rugosité thermique canopée (m)
-
-# Paramètres du modèle
-C_G_SOIL  = 0.30       # Fraction du Rn partant dans le sol pour sol nu (G/Rn)
-C_G_VEG   = 0.05       # Fraction du Rn partant dans le sol sous végétation
-
-# Seuils NDVI pour le calcul de fc
-NDVI_SOL  = 0.15       # NDVI typique sol nu
-NDVI_VEG  = 0.90       # NDVI typique végétation dense
-
+# Paramètres supprimés car gérés dynamiquement via SITE_TTME_PARAMS
 
 # =============================================================================
 # FONCTIONS UTILITAIRES
@@ -74,19 +61,21 @@ def extract_datetime_from_filename(filename):
     return None
 
 
-def compute_fc(ndvi):
+def compute_fc(ndvi, params):
     """Calcule la fraction de couverture végétale à partir du NDVI."""
-    fc = ((ndvi - NDVI_SOL) / (NDVI_VEG - NDVI_SOL)) ** 2
+    ndvi_sol = params.get("NDVI_SOL", 0.15)
+    ndvi_veg = params.get("NDVI_VEG", 0.90)
+    fc = ((ndvi - ndvi_sol) / (ndvi_veg - ndvi_sol)) ** 2
     return np.clip(fc, 0.0, 1.0)
 
 
-def compute_aerodynamic_resistance(u, z0m, z0h):
+def compute_aerodynamic_resistance(u, z0m, z0h, z_m=Z_M):
     """
     Calcule la résistance aérodynamique (s/m) en conditions de stabilité neutre.
     r_ah = ln(z_m/z0m) * ln(z_h/z0h) / (k² * u)
     """
     u = np.maximum(u, 0.5)  # Vitesse du vent minimale pour éviter division par 0
-    r_ah = (np.log(Z_M / z0m) * np.log(Z_H / z0h)) / (K_VK**2 * u)
+    r_ah = (np.log(z_m / z0m) * np.log(Z_H / z0h)) / (K_VK**2 * u)
     return r_ah
 
 
@@ -209,6 +198,8 @@ def load_meteo_era5(site, target_dt, margin_min=60):
             'Ta':  row.get('TA_Consolide', np.nan),
             'u':   row.get('WS_Consolide', np.nan),
             'Rn':  row.get('Rn_Consolide', np.nan),
+            'R_s_down': row.get('SW_IN_Consolide', np.nan),
+            'R_l_down': row.get('LW_IN_Consolide', np.nan),
             'G':   np.nan,
             'RH':  row.get('RH_Consolide', np.nan),
             'LST_ground': row.get('LST_Calculee', np.nan),
@@ -231,15 +222,17 @@ def load_meteo(site, target_dt, source='icos'):
     
     # Mode ICOS : priorité ICOS > NOAA > GOL
     meteo = load_meteo_icos(site, target_dt)
+    if meteo is None or pd.isna(meteo['Ta']):
+        meteo = load_meteo_noaa(site, target_dt)
+    if meteo is None or pd.isna(meteo['Ta']):
+        meteo = load_meteo_gol(site, target_dt)
+        
+    # Toujours récupérer les flux radiatifs descendants d'ERA5, car les stations ne les fournissent pas tous
     if meteo is not None and pd.notna(meteo['Ta']):
-        return meteo
-    
-    meteo = load_meteo_noaa(site, target_dt)
-    if meteo is not None and pd.notna(meteo['Ta']):
-        return meteo
-    
-    meteo = load_meteo_gol(site, target_dt)
-    if meteo is not None and pd.notna(meteo['Ta']):
+        meteo_era5 = load_meteo_era5(site, target_dt)
+        if meteo_era5 is not None:
+            meteo['R_s_down'] = meteo_era5.get('R_s_down', np.nan)
+            meteo['R_l_down'] = meteo_era5.get('R_l_down', np.nan)
         return meteo
     
     return None
@@ -249,7 +242,47 @@ def load_meteo(site, target_dt, source='icos'):
 # CŒUR DU MODÈLE TTME
 # =============================================================================
 
-def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, G_measured=None, transform=None, crs=None):
+def calculer_bilan_radiatif(bandes_landsat, fc, lst_celsius, R_s_down, R_l_down):
+    """
+    Calcule le Rayonnement Net (Rn) à 30m.
+    
+    Paramètres :
+    - bandes_landsat : dictionnaire contenant les réflectances de surface Landsat 8/9
+                       ex: {'B2': bleu, 'B4': rouge, 'B5': nir, 'B6': swir1, 'B7': swir2}
+    - fc : Fraction de couverture végétale (numpy array, de 0 à 1)
+    - lst_celsius : Température de surface issue du DMS en degrés Celsius
+    - R_s_down : Rayonnement solaire descendant d'ERA5 (SSRD, converti en W/m²)
+    - R_l_down : Rayonnement infrarouge thermique descendant d'ERA5 (STRD, converti en W/m²)
+    
+    Retourne :
+    - Rn : Rayonnement net en W/m² (numpy array)
+    """
+    
+    # 1. Calcul de l'Albédo (Méthode de Liang, 2001 pour Landsat)
+    # Les bandes doivent être en réflectance de surface (0 à 1)
+    alpha = (0.356 * bandes_landsat['B2'] + 
+             0.130 * bandes_landsat['B4'] + 
+             0.373 * bandes_landsat['B5'] + 
+             0.085 * bandes_landsat['B6'] + 
+             0.072 * bandes_landsat['B7'] - 0.0018)
+             
+    # Borner l'albédo pour éviter les valeurs aberrantes sur l'eau ou l'ombre
+    alpha = np.clip(alpha, 0.01, 0.99)
+    
+    # 2. Calcul de l'Émissivité de surface (epsilon)
+    # Basé sur une pondération classique entre un sol nu typique (0.971) et une canopée (0.989)
+    epsilon = 0.971 * (1 - fc) + 0.989 * fc
+    
+    # 3. Conversion de la température en Kelvin
+    lst_kelvin = lst_celsius + 273.15
+    
+    # 4. Calcul du Rayonnement Net (Rn)
+    # Équation : Rn = (1 - alpha)*Rs_down + epsilon*Rl_down - epsilon*sigma*T^4
+    Rn = (1 - alpha) * R_s_down + epsilon * R_l_down - epsilon * SIGMA * (lst_kelvin ** 4)
+    
+    return Rn
+
+def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params, G_measured=None, transform=None, crs=None, z_m=Z_M):
     """
     Implémente le modèle TTME (Two-source Trapezoid Model for Evapotranspiration).
     
@@ -258,7 +291,10 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, G_measured=None, transform
         ndvi_array  : np.ndarray 2D - NDVI
         Ta          : float - Température de l'air (°C)
         u           : float - Vitesse du vent (m/s)
-        Rn          : float - Rayonnement net (W/m²)
+        Rn          : np.ndarray 2D - Rayonnement net (W/m²) spatialisé
+        R_s_down    : float - Rayonnement solaire descendant d'ERA5
+        R_l_down    : float - Rayonnement thermique descendant d'ERA5
+        params      : dict - Dictionnaire des paramètres TTME du site
         G_measured  : float or None - Flux de chaleur sol mesuré (W/m²)
         transform   : rasterio.Affine - transform géospatial
         crs         : str - système de coordonnées
@@ -269,6 +305,14 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, G_measured=None, transform
             'EF', 'T_s_max', 'T_c_max', 'transform', 'crs'
     """
     
+    # Extraire les paramètres
+    z0m_s = params.get("Z0M_SOIL", 0.005)
+    z0h_s = params.get("Z0H_SOIL", 0.0005)
+    z0m_c = params.get("Z0M_VEG", 0.10)
+    z0h_c = params.get("Z0H_VEG", 0.01)
+    cg_s  = params.get("C_G_SOIL", 0.30)
+    cg_c  = params.get("C_G_VEG", 0.05)
+    
     # =========================================================================
     # PHASE 1 : Préparation des Variables d'Entrée
     # =========================================================================
@@ -277,7 +321,7 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, G_measured=None, transform
     valid = np.isfinite(lst_array) & np.isfinite(ndvi_array) & (lst_array > -50) & (lst_array < 80)
     
     # Fraction de couverture végétale
-    fc = np.where(valid, compute_fc(ndvi_array), np.nan)
+    fc = np.where(valid, compute_fc(ndvi_array, params), np.nan)
     
     # Vitesse du vent minimale
     u = max(u, 0.5)
@@ -287,21 +331,26 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, G_measured=None, transform
     # =========================================================================
     
     # Résistances aérodynamiques (neutralité supposée)
-    r_ah_s = compute_aerodynamic_resistance(u, Z0M_SOIL, Z0H_SOIL)  # Sol nu
-    r_ah_c = compute_aerodynamic_resistance(u, Z0M_VEG, Z0H_VEG)    # Canopée
+    r_ah_s = compute_aerodynamic_resistance(u, z0m_s, z0h_s, z_m=z_m)  # Sol nu
+    r_ah_c = compute_aerodynamic_resistance(u, z0m_c, z0h_c, z_m=z_m)    # Canopée
     
-    # Partition du rayonnement net (simplifiée)
-    # Beer's law approximation : Rn_s = Rn * exp(-k*LAI) ≈ Rn * (1 - fc)
-    Rn_s = Rn * (1.0 - fc)    # Rayonnement net arrivant au sol
-    Rn_c = Rn * fc             # Rayonnement net intercepté par la canopée
+    # Correction de stabilité simplifiée pour le bord chaud (convection libre)
+    # On bride les résistances car la turbulence thermique les détruit à haute température.
+    r_ah_s = min(r_ah_s, 110.0)
+    r_ah_c = min(r_ah_c, 30.0)
     
-    # Flux de chaleur dans le sol
+    # Les bilans radiatifs des patchs "purs" utilisent le Rn global du pixel
+    # On évite ainsi la double pondération lors de la recombinaison finale
+    
+    # Flux de chaleur dans le sol pour les patchs purs
     if G_measured is not None and pd.notna(G_measured):
-        # Utiliser la mesure terrain si disponible
-        G = np.where(valid, G_measured * (1.0 - fc) + C_G_VEG * Rn * fc, np.nan)
+        Gs = np.full_like(Rn, G_measured)
+        Gc = cg_c * Rn
+        G = np.where(valid, G_measured * (1.0 - fc) + Gc * fc, np.nan)
     else:
-        # Paramétrer : G = c_g_s * Rn_s pour sol nu, c_g_v * Rn pour végétation
-        G = np.where(valid, C_G_SOIL * Rn_s + C_G_VEG * Rn_c, np.nan)
+        Gs = cg_s * Rn
+        Gc = cg_c * Rn
+        G = np.where(valid, Gs * (1.0 - fc) + Gc * fc, np.nan)
     
     # --- Limite Froide (Lower Boundary) ---
     # T_s,min = T_c,min = Ta (toute l'énergie part en évaporation)
@@ -309,22 +358,27 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, G_measured=None, transform
     T_c_min = Ta
     
     # --- Limite Chaude (Upper Boundary) ---
-    # Sol nu totalement sec (LE = 0) : Rn_s(fc=0) - G = H_s
-    # Rn_sol_sec = Rn (car fc=0)
-    # G_sol_sec = C_G_SOIL * Rn
-    # T_s,max = Ta + r_ah_s * (Rn - C_G_SOIL * Rn) / RHO_CP
-    T_s_max = Ta + r_ah_s * (Rn * (1.0 - C_G_SOIL)) / RHO_CP
+    # Sol nu totalement sec (LE = 0) : H_s = Rn_theo_s - G_s
+    # On force l'albédo à 0.25 et l'émissivité à 0.971 pour le sol nu sec, et on itère
+    T_s_max_iter = Ta + 10.0
+    for _ in range(3):
+        Rn_s_theo = (1 - 0.25) * R_s_down + 0.971 * R_l_down - 0.971 * SIGMA * ((T_s_max_iter + 273.15)**4)
+        T_s_max_iter = Ta + r_ah_s * (Rn_s_theo * (1.0 - cg_s)) / RHO_CP
+    T_s_max = T_s_max_iter
     
-    # Canopée totalement sèche (LE = 0, G = 0 pour la canopée) : Rn_c(fc=1) = H_c
-    # Rn_canopee_seche = Rn (car fc=1)
-    # T_c,max = Ta + r_ah_c * Rn / RHO_CP
-    T_c_max = Ta + r_ah_c * Rn / RHO_CP
+    # Canopée totalement sèche (LE = 0) : H_c = Rn_theo_c - G_c
+    # On force l'albédo à 0.20 et l'émissivité à 0.989 pour la canopée
+    T_c_max_iter = Ta + 5.0
+    for _ in range(3):
+        Rn_c_theo = (1 - 0.20) * R_s_down + 0.989 * R_l_down - 0.989 * SIGMA * ((T_c_max_iter + 273.15)**4)
+        T_c_max_iter = Ta + r_ah_c * (Rn_c_theo * (1.0 - cg_c)) / RHO_CP
+    T_c_max = T_c_max_iter
     
     # Pente de la ligne chaude (warm edge) dans l'espace (fc, T)
     beta_w = T_c_max - T_s_max
     
     LOGGER.info(f"      📐 Limites théoriques : T_s,max = {T_s_max:.1f}°C | T_c,max = {T_c_max:.1f}°C | β_w = {beta_w:.2f}")
-    LOGGER.info(f"      🌡️ Ta = {Ta:.1f}°C | u = {u:.1f} m/s | Rn = {Rn:.1f} W/m²")
+    LOGGER.info(f"      🌡️ Ta = {Ta:.1f}°C | u = {u:.1f} m/s | Rn_moyen_pixel = {np.nanmean(Rn):.1f} W/m²")
     LOGGER.info(f"      🔧 r_ah_s = {r_ah_s:.1f} s/m | r_ah_c = {r_ah_c:.1f} s/m")
     
     # =========================================================================
@@ -363,39 +417,53 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, G_measured=None, transform
     Tc = np.where(Tc < Ta - 5, np.nan, Tc)
     
     # =========================================================================
-    # PHASE 4 : Paramétrisation Séparée des Flux
+    # PHASE 4 : Paramétrisation Séparée des Flux (Géométrique TTME)
     # =========================================================================
     
-    # Chaleur sensible
-    Hs = np.where(valid, RHO_CP * (Ts - Ta) / r_ah_s, np.nan)  # Sol
-    Hc = np.where(valid, RHO_CP * (Tc - Ta) / r_ah_c, np.nan)  # Canopée
+    # L'énergie disponible pour chaque pôle pur
+    G_pur_sol = cg_s * Rn
+    G_pur_canopee = cg_c * Rn
     
-    # Chaleur latente (résidu du bilan énergétique)
-    LEs = np.where(valid, Rn_s - G - Hs, np.nan)     # Évaporation du sol
-    LEc = np.where(valid, Rn_c - Hc, np.nan)          # Transpiration de la végétation
+    Rn_s_dispo = Rn - G_pur_sol
+    Rn_c_dispo = Rn - G_pur_canopee
+    
+    # Calcul de la Chaleur Latente par interpolation linéaire dans le trapèze
+    # Pour le sol : varie de LEs = Rn_s_dispo (si Ts = Ta) à LEs = 0 (si Ts = T_s_max)
+    LEs = np.where(
+        valid & (T_s_max > Ta),
+        Rn_s_dispo * (T_s_max - Ts) / (T_s_max - Ta),
+        0.0
+    )
+    
+    # Pour la canopée : varie de LEc = Rn_c_dispo (si Tc = Ta) à LEc = 0 (si Tc = T_c_max)
+    LEc = np.where(
+        valid & (T_c_max > Ta),
+        Rn_c_dispo * (T_c_max - Tc) / (T_c_max - Ta),
+        0.0
+    )
+    
+    # Par déduction, on obtient la Chaleur Sensible
+    Hs = np.where(valid, Rn_s_dispo - LEs, np.nan)
+    Hc = np.where(valid, Rn_c_dispo - LEc, np.nan)
     
     # =========================================================================
     # PHASE 5 : Synthèse - ET totale
     # =========================================================================
     
-    # LE total (mosaïque pondérée par fc)
+    # LE total (mosaïque pondérée par fc - Equation 1)
     LE = np.where(valid, fc * LEc + (1.0 - fc) * LEs, np.nan)
     
+    # L'énergie disponible totale pour le pixel mixte (Rn_pixel - G_pixel)
+    energie_dispo_pixel = np.where(valid, Rn - G, np.nan)
+    
     # Contraindre thermodynamiquement LE :
-    # 1. LE >= 0 (pas de condensation dans ce modèle simplifié)
-    # 2. LE <= Rn - G (ne peut pas dépasser l'énergie totale disponible)
-    energie_dispo = np.where(valid, Rn_c + Rn_s - G, np.nan)
-    LE = np.clip(LE, 0.0, energie_dispo)
+    LE = np.clip(LE, 0.0, energie_dispo_pixel)
     
     # Conversion en ET (mm/h)
-    # LE (W/m²) = LE (J/s/m²)
-    # ET (mm/h) = LE * 3600 / LAMBDA_V  (1 mm d'eau = LAMBDA_V/1000 J/m²... 
-    # plus précisément : ET = LE / (LAMBDA_V * rho_w) * 3600, rho_w=1000 kg/m³)
     ET_mm_h = np.where(valid, LE * 3600.0 / LAMBDA_V, np.nan)
     
-    # Fraction évaporative (EF)
-    Rn_pixel = np.where(valid, Rn_s + Rn_c, np.nan)  # = Rn pour tous les pixels
-    EF = np.where((Rn_pixel > 10) & valid, LE / Rn_pixel, np.nan)
+    # Fraction évaporative globale du pixel
+    EF = np.where((energie_dispo_pixel > 10) & valid, LE / energie_dispo_pixel, np.nan)
     EF = np.clip(EF, 0.0, 1.0)
     
     return {
@@ -469,7 +537,7 @@ def plot_trapezoid(fc, lst, ef, T_s_max, T_c_max, Ta, site, date_str, output_pat
 # FONCTION PRINCIPALE
 # =============================================================================
 
-def main(source='icos'):
+def main(source='icos', lst_source='dms'):
     source_label = source.upper()
     LOGGER.info("=" * 60)
     LOGGER.info(f"🌿 DÉMARRAGE DU CALCUL D'ÉVAPOTRANSPIRATION (TTME) — Source météo : {source_label}")
@@ -489,8 +557,9 @@ def main(source='icos'):
             continue
         
         # Dossier de sortie pour les résultats ET (séparé par source)
-        suffix = "_ERA5" if source == 'era5' else ""
-        et_output_dir = os.path.join(BASE_TIF_DIR, f"Serie_Temporelle_{site}", f"ET_TTME{suffix}")
+        suffix_source = "_ERA5" if source == 'era5' else ""
+        suffix_lst = "_B10" if lst_source == 'b10' else ""
+        et_output_dir = os.path.join(BASE_TIF_DIR, f"Serie_Temporelle_{site}", f"ET_TTME{suffix_source}{suffix_lst}")
         os.makedirs(et_output_dir, exist_ok=True)
         
         # Scanner les fichiers TIF et regrouper par date
@@ -510,6 +579,16 @@ def main(source='icos'):
                 dict_dates[dt]['ndvi'] = os.path.join(tif_folder, f)
             elif "Thermique_B10" in f:
                 dict_dates[dt]['b10'] = os.path.join(tif_folder, f)
+            elif "Reflectance_B2" in f:
+                dict_dates[dt]['b2'] = os.path.join(tif_folder, f)
+            elif "Reflectance_B4" in f:
+                dict_dates[dt]['b4'] = os.path.join(tif_folder, f)
+            elif "Reflectance_B5" in f:
+                dict_dates[dt]['b5'] = os.path.join(tif_folder, f)
+            elif "Reflectance_B6" in f:
+                dict_dates[dt]['b6'] = os.path.join(tif_folder, f)
+            elif "Reflectance_B7" in f:
+                dict_dates[dt]['b7'] = os.path.join(tif_folder, f)
         
         LOGGER.info(f"   📂 {len(dict_dates)} dates détectées.")
         
@@ -520,11 +599,19 @@ def main(source='icos'):
         for target_dt, paths in sorted(dict_dates.items()):
             date_str = target_dt.strftime("%Y-%m-%d")
             
-            # Vérifier qu'on a les deux rasters nécessaires
-            path_lst = paths.get('dms') or paths.get('b10')
+            # Vérifier qu'on a les rasters nécessaires
+            if lst_source == 'dms':
+                path_lst = paths.get('dms') or paths.get('b10')
+            else:
+                path_lst = paths.get('b10')
             path_ndvi = paths.get('ndvi')
+            path_b2 = paths.get('b2')
+            path_b4 = paths.get('b4')
+            path_b5 = paths.get('b5')
+            path_b6 = paths.get('b6')
+            path_b7 = paths.get('b7')
             
-            if not path_lst or not path_ndvi:
+            if not path_lst or not path_ndvi or not path_b2 or not path_b4 or not path_b5 or not path_b6 or not path_b7:
                 nb_skip_data += 1
                 continue
             
@@ -562,14 +649,25 @@ def main(source='icos'):
                 with rasterio.open(path_ndvi) as src_ndvi:
                     ndvi_array = src_ndvi.read(1).astype(np.float32)
                     ndvi_array = np.where((ndvi_array < -1) | (ndvi_array > 1), np.nan, ndvi_array)
+                    
+                with rasterio.open(path_b2) as src_b2: b2_array = src_b2.read(1).astype(np.float32)
+                with rasterio.open(path_b4) as src_b4: b4_array = src_b4.read(1).astype(np.float32)
+                with rasterio.open(path_b5) as src_b5: b5_array = src_b5.read(1).astype(np.float32)
+                with rasterio.open(path_b6) as src_b6: b6_array = src_b6.read(1).astype(np.float32)
+                with rasterio.open(path_b7) as src_b7: b7_array = src_b7.read(1).astype(np.float32)
                 
                 # Aligner les dimensions si légèrement différentes (effet de bord du DMS)
                 if lst_array.shape != ndvi_array.shape:
-                    h_min = min(lst_array.shape[0], ndvi_array.shape[0])
-                    w_min = min(lst_array.shape[1], ndvi_array.shape[1])
+                    h_min = min(lst_array.shape[0], ndvi_array.shape[0], b2_array.shape[0])
+                    w_min = min(lst_array.shape[1], ndvi_array.shape[1], b2_array.shape[1])
                     lst_array = lst_array[:h_min, :w_min]
                     ndvi_array = ndvi_array[:h_min, :w_min]
-                    LOGGER.info(f"   🔧 {date_str} : Recadrage LST/NDVI → ({h_min}, {w_min})")
+                    b2_array = b2_array[:h_min, :w_min]
+                    b4_array = b4_array[:h_min, :w_min]
+                    b5_array = b5_array[:h_min, :w_min]
+                    b6_array = b6_array[:h_min, :w_min]
+                    b7_array = b7_array[:h_min, :w_min]
+                    LOGGER.info(f"   🔧 {date_str} : Recadrage rasters → ({h_min}, {w_min})")
                 
                 # Vérifier qu'il y a assez de pixels valides
                 valid_pct = np.sum(np.isfinite(lst_array) & np.isfinite(ndvi_array)) / lst_array.size * 100
@@ -585,11 +683,34 @@ def main(source='icos'):
             # --- Exécuter le modèle TTME ---
             LOGGER.info(f"   🌿 {date_str} : Calcul TTME (source météo: {meteo['source']})...")
             
+            # Récupérer les paramètres du site
+            site_params = SITE_TTME_PARAMS.get(site, SITE_TTME_PARAMS["default"])
+            
+            # Calcul du bilan radiatif spatialisé
+            fc_array = compute_fc(ndvi_array, site_params)
+            bandes_landsat = {'B2': b2_array, 'B4': b4_array, 'B5': b5_array, 'B6': b6_array, 'B7': b7_array}
+            
+            # On utilise le rayonnement de base pour tout le monde si ERA5
+            R_s_down = meteo.get('R_s_down', np.nan)
+            R_l_down = meteo.get('R_l_down', np.nan)
+            
+            if pd.isna(R_s_down) or pd.isna(R_l_down):
+                LOGGER.warning(f"   ⚠️ Forçages radiatifs descendants manquants pour {date_str}, impossible de calculer Rn spatialisé.")
+                nb_skip_meteo += 1
+                continue
+                
+            Rn_2d = calculer_bilan_radiatif(bandes_landsat, fc_array, lst_array, R_s_down, R_l_down)
+            
+            z_m_source = 10.0 if meteo['source'] == 'ERA5' else Z_M
+            
             result = ttme_compute_et(
                 lst_array, ndvi_array,
-                Ta=Ta, u=u, Rn=Rn, G_measured=G_meas,
-                transform=transform, crs=crs
+                Ta=Ta, u=u, Rn=Rn_2d, R_s_down=R_s_down, R_l_down=R_l_down, params=site_params, G_measured=G_meas,
+                transform=transform, crs=crs, z_m=z_m_source
             )
+            
+            if result is None:
+                continue
             
             # --- Sauvegarder les résultats ---
             prefix = f"{date_str}_{site}"
@@ -674,8 +795,9 @@ def main(source='icos'):
     # --- Sauvegarde CSV de synthèse ---
     if resultats:
         df_final = pd.DataFrame(resultats)
-        suffix = f"_{source.upper()}" if source != 'icos' else ""
-        csv_path = os.path.join(OUTPUT_DIR, f"Resultats_ET_TTME{suffix}.csv")
+        suffix_source = f"_{source.upper()}" if source != 'icos' else ""
+        suffix_lst = "_B10" if lst_source == 'b10' else ""
+        csv_path = os.path.join(OUTPUT_DIR, f"Resultats_ET_TTME{suffix_source}{suffix_lst}.csv")
         df_final.to_csv(csv_path, index=False)
         LOGGER.info(f"\n{'='*60}")
         LOGGER.info(f"💾 Résultats sauvegardés : {csv_path}")
@@ -702,5 +824,10 @@ if __name__ == "__main__":
         choices=['icos', 'era5'],
         help="Source des données météo : 'icos' (ICOS/NOAA/GOL) ou 'era5' (réanalyse ERA5)"
     )
+    parser.add_argument(
+        '--lst', type=str, default='dms',
+        choices=['dms', 'b10'],
+        help="Source de la LST Landsat : 'dms' (sharpened) ou 'b10' (brute)"
+    )
     args = parser.parse_args()
-    main(source=args.source)
+    main(source=args.source, lst_source=args.lst)
