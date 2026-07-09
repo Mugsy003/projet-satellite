@@ -35,10 +35,14 @@ Le code est structuré de façon modulaire, séparé par mission spatiale :
 projet-satellite/
 ├── config.py                         # Fichier de configuration central
 ├── main.py                           # Orchestrateur global
-├── comparaison_ICOS.py               # Validation des pixels LST avec les stations
-├── calcul_ET.py                      # 💧 Modélisation de l'Évapotranspiration (TTME)
-├── visualisation_performances.py     # Création des graphiques (boxplots)
-├── optimisation_pipeline.py          # Tuning des hyperparamètres via Optuna
+├── Traitement/                       # Modèles physiques et Optimisation
+│   ├── calcul_ET.py                  # 💧 Modélisation de l'Évapotranspiration (TTME)
+│   └── optimisation_pipeline.py      # Tuning des hyperparamètres via Optuna
+│
+├── Analyse/                          # Scripts de statistiques et études annexes
+│   ├── comparaison_ICOS.py           # Validation des pixels LST avec les stations
+│   └── Visualisations/               # Création des graphiques finaux
+│       └── visualisation_performances.py
 │
 ├── Extraction/                       # Recherche STAC et Manifestes
 │   ├── Landsat/
@@ -57,7 +61,6 @@ projet-satellite/
 │   ├── Fusion/                       # Fusion multi-capteur (ECOSTRESS+S2, S3+S2)
 │   └── common/
 │
-├── Analyse/                          # Scripts de statistiques et études annexes
 └── donnees_Gol/                      # Fichiers CSV de températures externes
 ```
 
@@ -72,7 +75,7 @@ projet-satellite/
 ### Auto-Tuning (Optuna)
 Pour trouver les paramètres parfaits du DMS (RandomForest vs LightGBM, profondeur des arbres, etc.), vous pouvez lancer la boucle d'optimisation intelligente. Elle testera des dizaines de configurations et conservera celle qui offre la meilleure **RMSE Terrain** :
 ```bash
-python optimisation_pipeline.py
+python Traitement/optimisation_pipeline.py
 ```
 
 ---
@@ -87,10 +90,10 @@ Ce modèle sépare l'évaporation du sol (Soil) de la transpiration des plantes 
 Vous pouvez calculer l'ET en utilisant soit les données météo parfaites du sol (ICOS), soit les données météo spatiales (ERA5) :
 ```bash
 # Calcul avec la météo In-Situ
-python calcul_ET.py --source icos
+python Traitement/calcul_ET.py --source icos
 
 # Calcul avec la météo globale Copernicus (ERA5)
-python calcul_ET.py --source era5
+python Traitement/calcul_ET.py --source era5
 ```
 Les scripts dans le dossier `Analyse/` (comme `generer_graphes_par_site.py`) permettent ensuite de générer des séries temporelles croisant les résultats satellitaires avec les "Ground Truth" des tours à flux.
 

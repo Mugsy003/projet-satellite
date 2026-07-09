@@ -62,15 +62,15 @@ def main():
         et_pure = df_site[var_et_pure] if has_pure else pd.Series([np.nan]*len(df_site))
         et_b10 = df_site[var_et_b10] if has_b10 else pd.Series([np.nan]*len(df_site))
         
-        # Filtrer les NaNs pour la corrélation Pure ICOS vs ERA5
-        valid_mask = et_pure.notna() & et_era5.notna()
-        et_pure_valid = et_pure[valid_mask]
+        # Filtrer les NaNs pour la corrélation ICOS vs ERA5
+        valid_mask = et_icos.notna() & et_era5.notna()
+        et_icos_valid = et_icos[valid_mask]
         et_era5_valid = et_era5[valid_mask]
         
         try:
-            if len(et_pure_valid) >= 2:
-                r2 = r2_score(et_pure_valid, et_era5_valid)
-                rmse = np.sqrt(mean_squared_error(et_pure_valid, et_era5_valid))
+            if len(et_icos_valid) >= 2:
+                r2 = r2_score(et_icos_valid, et_era5_valid)
+                rmse = np.sqrt(mean_squared_error(et_icos_valid, et_era5_valid))
             else:
                 r2, rmse = np.nan, np.nan
         except:
@@ -78,21 +78,21 @@ def main():
             
         fig, axes = plt.subplots(1, 2, figsize=(16, 6))
         
-        # 1. Nuage de points (Pure ICOS vs ERA5)
+        # 1. Nuage de points (ICOS vs ERA5)
         ax1 = axes[0]
-        ax1.scatter(et_pure_valid, et_era5_valid, color='dodgerblue', alpha=0.8, edgecolor='k')
-        if len(et_pure_valid) > 0:
-            min_val = min(et_pure_valid.min(), et_era5_valid.min())
-            max_val = max(et_pure_valid.max(), et_era5_valid.max())
+        ax1.scatter(et_icos_valid, et_era5_valid, color='dodgerblue', alpha=0.8, edgecolor='k')
+        if len(et_icos_valid) > 0:
+            min_val = min(et_icos_valid.min(), et_era5_valid.min())
+            max_val = max(et_icos_valid.max(), et_era5_valid.max())
             margin = (max_val - min_val) * 0.1 if max_val != min_val else 0.1
             min_val, max_val = min_val - margin, max_val + margin
             ax1.plot([min_val, max_val], [min_val, max_val], 'r--', label='1:1')
             ax1.set_xlim(min_val, max_val)
             ax1.set_ylim(min_val, max_val)
             
-        ax1.set_xlabel("ET Pure ICOS (mm/h) [Référence]", fontsize=11)
-        ax1.set_ylabel("ET ERA5 (mm/h) [Modèle]", fontsize=11)
-        ax1.set_title(f"Corrélation Pure ICOS vs ERA5 (R² = {r2:.2f})", fontsize=13)
+        ax1.set_xlabel("ET ICOS (LST Landsat) [Référence]", fontsize=11)
+        ax1.set_ylabel("ET ERA5 (LST Landsat) [Modèle]", fontsize=11)
+        ax1.set_title(f"Corrélation ICOS vs ERA5 (R² = {r2:.2f})", fontsize=13)
         ax1.grid(True, linestyle=':', alpha=0.6)
         
         # 2. Série temporelle (3 courbes)

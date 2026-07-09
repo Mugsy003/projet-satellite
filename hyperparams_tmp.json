@@ -1,1 +1,0 @@
-{"model_type": "RandomForest", "n_estimators": 1000, "max_depth": 65, "min_samples_split": 33, "min_samples_leaf": 1, "max_features": 1.0}

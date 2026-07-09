@@ -153,9 +153,8 @@ def download_era5_for_site(site, lon, lat, start_date, end_date, output_nc):
         
         try:
             client.retrieve(
-                'reanalysis-era5-single-levels',
+                'reanalysis-era5-land',
                 {
-                    'product_type': 'reanalysis',
                     'variable': ERA5_VARIABLES,
                     'year': str(year),
                     'month': f"{month:02d}",

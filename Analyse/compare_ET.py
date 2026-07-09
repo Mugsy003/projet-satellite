@@ -23,12 +23,12 @@ def main():
     
     if not os.path.exists(FILE_ICOS):
         print(f"❌ Fichier introuvable : {FILE_ICOS}")
-        print("   Veuillez lancer calcul_ET.py avec la source ICOS d'abord.")
+        print("   Veuillez lancer Traitement/calcul_ET.py avec la source ICOS d'abord.")
         sys.exit(1)
         
     if not os.path.exists(FILE_ERA5):
         print(f"❌ Fichier introuvable : {FILE_ERA5}")
-        print("   Veuillez attendre la fin de l'extraction ERA5 et lancer calcul_ET.py --source era5")
+        print("   Veuillez attendre la fin de l'extraction ERA5 et lancer Traitement/calcul_ET.py --source era5")
         sys.exit(1)
         
     df_icos = pd.read_csv(FILE_ICOS)

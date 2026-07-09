@@ -160,7 +160,7 @@ def main():
     
     def step_comparaison():
         # comparaison_ICOS est un script, on l'exécute via exec
-        exec(open("comparaison_ICOS.py", encoding="utf-8").read())
+        exec(open("Analyse/comparaison_ICOS.py", encoding="utf-8").read())
     resultats["comparaison_icos"] = run_step("comparaison_icos", step_comparaison)
 
     # ========================================
@@ -168,7 +168,7 @@ def main():
     # ========================================
     
     def step_visualisation():
-        exec(open("visualisation_performances.py", encoding="utf-8").read())
+        exec(open("Analyse/Visualisations/visualisation_performances.py", encoding="utf-8").read())
     resultats["visualisation"] = run_step("visualisation", step_visualisation)
 
     # ========================================
