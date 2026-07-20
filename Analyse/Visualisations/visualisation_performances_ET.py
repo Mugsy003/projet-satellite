@@ -12,24 +12,44 @@ os.makedirs("Outputs_performances", exist_ok=True)
 # 1. Charger les données
 print("Chargement des donnees ET...")
 try:
-    df_icos = pd.read_csv("Outputs/Resultats_ET_TTME.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
+    df_icos = pd.read_csv("Outputs/Resultats_ET_TTME_ICOS.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
     df_era5 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
     df_era5_b10 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5_B10.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
-    df_pure_icos = pd.read_csv("Outputs/Toutes_Comparaisons/Comparaison_ET_Landsat_vs_PureICOS.csv")[['Site', 'Date', 'ET_pure_ICOS (mm/h)']]
 except Exception as e:
-    print(f"Erreur lors du chargement des fichiers : {e}")
+    print(f"Erreur lors du chargement des fichiers de base : {e}")
     exit(1)
+
+try:
+    df_pure_icos = pd.read_csv("Outputs/Toutes_Comparaisons/Comparaison_ET_Landsat_vs_PureICOS.csv")[['Site', 'Date', 'ET_pure_ICOS (mm/h)']]
+    has_pure_icos = True
+except Exception:
+    df_pure_icos = pd.DataFrame()
+    has_pure_icos = False
+
+    
+try:
+    df_era5_ds = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5_DS.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
+    has_era5_ds = True
+except Exception:
+    df_era5_ds = pd.DataFrame()
+    has_era5_ds = False
 
 # Renommer pour la fusion
 df_icos = df_icos.rename(columns={'ET_pixel (mm/h)': 'ET_ICOS_LST_Landsat'})
 df_era5 = df_era5.rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_LST_Landsat'})
 df_era5_b10 = df_era5_b10.rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_LST_B10'})
-df_pure_icos = df_pure_icos.rename(columns={'ET_pure_ICOS (mm/h)': 'ET_Pure_ICOS'})
+if has_pure_icos:
+    df_pure_icos = df_pure_icos.rename(columns={'ET_pure_ICOS (mm/h)': 'ET_Pure_ICOS'})
+if has_era5_ds:
+    df_era5_ds = df_era5_ds.rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_DS_LST_Landsat'})
 
 # Fusionner les DataFrames
 df_merged = pd.merge(df_icos, df_era5, on=['Site', 'Date'], how='inner')
 df_merged = pd.merge(df_merged, df_era5_b10, on=['Site', 'Date'], how='inner')
-df_merged = pd.merge(df_merged, df_pure_icos, on=['Site', 'Date'], how='inner')
+if has_pure_icos:
+    df_merged = pd.merge(df_merged, df_pure_icos, on=['Site', 'Date'], how='inner')
+if has_era5_ds:
+    df_merged = pd.merge(df_merged, df_era5_ds, on=['Site', 'Date'], how='inner')
 
 # Nettoyage
 df_valid = df_merged.dropna().copy()
@@ -45,11 +65,17 @@ MODELES = {
     'ERA5 (LST Landsat)': {'col': 'ET_ERA5_LST_Landsat', 'color': '#ff7f0e'},
     'ERA5 (LST B10)':     {'col': 'ET_ERA5_LST_B10',     'color': '#d62728'}
 }
+if has_era5_ds:
+    MODELES['ERA5 DS (LST Landsat)'] = {'col': 'ET_ERA5_DS_LST_Landsat', 'color': '#1f77b4'}
 
 # Calculer les erreurs
 for nom, cfg in MODELES.items():
     col_erreur = f'Erreur_{nom.replace(" ", "_")}'
-    df_valid[col_erreur] = df_valid[cfg['col']] - df_valid['ET_Pure_ICOS']
+    if has_pure_icos:
+        df_valid[col_erreur] = df_valid[cfg['col']] - df_valid['ET_Pure_ICOS']
+    else:
+        # If no pure ICOS to compare against, use standard ICOS as baseline
+        df_valid[col_erreur] = df_valid[cfg['col']] - df_valid['ET_ICOS_LST_Landsat']
 
 # ==========================================
 # Graphique 1 : Bar Chart des MAE et RMSE par Site
@@ -62,7 +88,8 @@ for site in df_valid['Site'].unique():
     
     for nom, cfg in MODELES.items():
         col_erreur = f'Erreur_{nom.replace(" ", "_")}'
-        rmse = np.sqrt(mean_squared_error(subset['ET_Pure_ICOS'], subset[cfg['col']]))
+        ref_col = 'ET_Pure_ICOS' if has_pure_icos else 'ET_ICOS_LST_Landsat'
+        rmse = np.sqrt(mean_squared_error(subset[ref_col], subset[cfg['col']]))
         mae = subset[col_erreur].abs().mean()
         metrics_site.append({'Site': site, 'Modele': nom, 'RMSE': rmse, 'MAE': mae})
 
@@ -100,7 +127,8 @@ print("\nGénération du graphique global RMSE, MAE et Biais...")
 performance_global_data = []
 for nom, cfg in MODELES.items():
     col_erreur = f'Erreur_{nom.replace(" ", "_")}'
-    rmse_val = np.sqrt(mean_squared_error(df_valid['ET_Pure_ICOS'], df_valid[cfg['col']]))
+    ref_col = 'ET_Pure_ICOS' if has_pure_icos else 'ET_ICOS_LST_Landsat'
+    rmse_val = np.sqrt(mean_squared_error(df_valid[ref_col], df_valid[cfg['col']]))
     mae_val = df_valid[col_erreur].abs().mean()
     performance_global_data.append({
         'Modele': nom, 

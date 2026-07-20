@@ -167,11 +167,8 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
     for i in range(X_matrice_90m.shape[1]):
         masque_valide_90m &= np.isfinite(X_matrice_90m[:, i])
 
-# --- NOUVEAUTÉ : Le filtrage par homogénéité ---
     LOGGER.info("   🧹 Sélection des pixels d'entraînement (Seuil de pureté : < 50% de variance)...")
     
-    # CORRECTION ICI : On crée un dictionnaire temporaire sans les coordonnées 
-    # pour ne pas fausser le calcul de la variance interne
     X_dict_pour_masque = {k: v for k, v in X_dict_30m.items() if k not in ['Coord_X', 'Coord_Y']}
     
     # On calcule le masque uniquement sur les variables physiques
@@ -224,11 +221,11 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
             )
     else:
         modele = RandomForestRegressor(
-            n_estimators=n_estimators, 
-            max_depth=max_depth, 
-            min_samples_split=min_samples_split,
-            min_samples_leaf=min_samples_leaf,
-            max_features=max_features,
+            n_estimators=100, 
+            max_depth=10, 
+            min_samples_split=2,
+            min_samples_leaf=1,
+            max_features=1.0,
             random_state=42, 
             n_jobs=-1
         )

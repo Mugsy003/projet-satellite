@@ -61,11 +61,7 @@ def process_satellite_timeseries(mes_items, bbox, bands_of_interest, max_jours_f
         clouds = anchor_item.properties.get('eo:cloud_cover', 100)
         
         # --- PRÉ-FILTRAGE METADONNÉES ---
-        # Si c'est trop nuageux, on ne télécharge même pas !
-        if clouds > max_nuages_rejet:
-            LOGGER.info(f"\n   📅 {date_str} - ❌ REJETÉE (Métadonnées) : Nuages ({clouds:.1f}%) > {max_nuages_rejet}%")
-            continue
-
+        # Suppression du filtre global ici pour laisser la vérification locale QA_PIXEL faire son travail.
         LOGGER.info(f"\n   📅 Évaluation de l'image du {date_str} (Nuages métadonnées: {clouds:.1f}%)")
         
         try:

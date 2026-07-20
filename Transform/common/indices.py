@@ -34,6 +34,14 @@ def calculate_savi(red, nir, L=0.5):
     LOGGER.info("      🌱 Calcul de l'indice SAVI (Végétation ajustée au sol)...")
     return safe_divide((nir - red) * (1 + L), nir + red + L)
 
+def calculate_mndwi(green, swir):
+    """Modified Normalized Difference Water Index (Xu, 2006).
+    Utilise le SWIR au lieu du NIR pour mieux discriminer l'eau
+    des surfaces bâties.
+    """
+    LOGGER.info("      💧 Calcul de l'indice MNDWI (Eau modifié)...")
+    return safe_divide(green - swir, green + swir)
+
 def calculate_lst_step_by_step(bt_kelvin, ndvi_array):
     LOGGER.info("      🌡️ Début du calcul LST (avec Émissivité empirique par paliers)...")
     

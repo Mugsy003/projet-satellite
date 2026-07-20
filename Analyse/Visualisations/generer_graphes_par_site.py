@@ -6,11 +6,12 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.dates as mdates
 
-OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Outputs")
+OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Outputs")
 CSV_ERA5 = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "Comparaison_ET_ICOS_vs_ERA5.csv")
 CSV_PURE = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "Comparaison_ET_Landsat_vs_PureICOS.csv")
 CSV_ERA5_B10 = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5_B10.csv")
-OUT_DIR = os.path.join(OUTPUTS_DIR, "comparaisons ET")
+CSV_ERA5_DS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5_DS.csv")
+OUT_DIR = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons")
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -41,10 +42,16 @@ def main():
         df = pd.merge(df, df_b10[['Site', 'Date', 'ET_pixel (mm/h)_B10']], on=['Site', 'Date'], how='left')
         has_b10 = True
         
+    has_ds = False
+    if 'ET_pixel (mm/h)_ERA5_DS' in df.columns:
+        has_ds = True
+        
+
     var_et_icos = 'ET_pixel (mm/h)_ICOS'
     var_et_era5 = 'ET_pixel (mm/h)_ERA5'
     var_et_pure = 'ET_pure_ICOS (mm/h)' if has_pure else None
     var_et_b10 = 'ET_pixel (mm/h)_B10' if has_b10 else None
+    var_et_ds = 'ET_pixel (mm/h)_ERA5_DS' if has_ds else None
     
     sites = df['Site'].unique()
     print(f"📊 Génération des graphiques (3 courbes) pour {len(sites)} sites...")
@@ -61,39 +68,56 @@ def main():
         et_era5 = df_site[var_et_era5]
         et_pure = df_site[var_et_pure] if has_pure else pd.Series([np.nan]*len(df_site))
         et_b10 = df_site[var_et_b10] if has_b10 else pd.Series([np.nan]*len(df_site))
+        et_ds = df_site[var_et_ds] if has_ds else pd.Series([np.nan]*len(df_site))
         
-        # Filtrer les NaNs pour la corrélation ICOS vs ERA5
-        valid_mask = et_icos.notna() & et_era5.notna()
-        et_icos_valid = et_icos[valid_mask]
-        et_era5_valid = et_era5[valid_mask]
+        # Définition de la référence (Pure ICOS si dispo, sinon ICOS Landsat)
+        ref_name = "Pure ICOS (in-situ)" if has_pure else "ICOS (LST Landsat)"
+        et_ref = et_pure if has_pure else et_icos
         
-        try:
-            if len(et_icos_valid) >= 2:
-                r2 = r2_score(et_icos_valid, et_era5_valid)
-                rmse = np.sqrt(mean_squared_error(et_icos_valid, et_era5_valid))
-            else:
-                r2, rmse = np.nan, np.nan
-        except:
-            r2, rmse = np.nan, np.nan
+        # Fonction pour calculer les métriques
+        def calc_metrics(et_model):
+            mask = et_ref.notna() & et_model.notna()
+            if mask.sum() >= 2:
+                r2 = r2_score(et_ref[mask], et_model[mask])
+                rmse = np.sqrt(mean_squared_error(et_ref[mask], et_model[mask]))
+                bias = np.mean(et_model[mask] - et_ref[mask])
+                return f"{r2:.2f}", f"{rmse:.3f}", f"{bias:.3f}"
+            return "N/A", "N/A", "N/A"
             
+        r2_era5, rmse_era5, bias_era5 = calc_metrics(et_era5)
+        
+        # Préparation du tableau
+        cell_text = [
+            ["ERA5 brute", r2_era5, rmse_era5, bias_era5]
+        ]
+        
+        if has_ds:
+            r2_ds, rmse_ds, bias_ds = calc_metrics(et_ds)
+            cell_text.append(["ERA5 DS", r2_ds, rmse_ds, bias_ds])
+            
+        if has_b10:
+            r2_b10, rmse_b10, bias_b10 = calc_metrics(et_b10)
+            cell_text.append(["ERA5 (LST B10)", r2_b10, rmse_b10, bias_b10])
+            
+        # 1. Tableau des performances (à la place du scatter plot)
         fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-        
-        # 1. Nuage de points (ICOS vs ERA5)
         ax1 = axes[0]
-        ax1.scatter(et_icos_valid, et_era5_valid, color='dodgerblue', alpha=0.8, edgecolor='k')
-        if len(et_icos_valid) > 0:
-            min_val = min(et_icos_valid.min(), et_era5_valid.min())
-            max_val = max(et_icos_valid.max(), et_era5_valid.max())
-            margin = (max_val - min_val) * 0.1 if max_val != min_val else 0.1
-            min_val, max_val = min_val - margin, max_val + margin
-            ax1.plot([min_val, max_val], [min_val, max_val], 'r--', label='1:1')
-            ax1.set_xlim(min_val, max_val)
-            ax1.set_ylim(min_val, max_val)
-            
-        ax1.set_xlabel("ET ICOS (LST Landsat) [Référence]", fontsize=11)
-        ax1.set_ylabel("ET ERA5 (LST Landsat) [Modèle]", fontsize=11)
-        ax1.set_title(f"Corrélation ICOS vs ERA5 (R² = {r2:.2f})", fontsize=13)
-        ax1.grid(True, linestyle=':', alpha=0.6)
+        ax1.axis('tight')
+        ax1.axis('off')
+        
+        col_labels = ["Modèle", "R²", "RMSE (mm/h)", "Biais (mm/h)"]
+        table = ax1.table(cellText=cell_text, colLabels=col_labels, loc='center', cellLoc='center')
+        table.scale(1, 2)
+        table.auto_set_font_size(False)
+        table.set_fontsize(12)
+        
+        # Mettre les en-têtes en gras et colorer
+        for (row, col), cell in table.get_celld().items():
+            if row == 0:
+                cell.set_text_props(weight='bold', color='white')
+                cell.set_facecolor('#40466e')
+                
+        ax1.set_title(f"Performances vs {ref_name}", fontsize=13, weight='bold', pad=20)
         
         # 2. Série temporelle (3 courbes)
         ax2 = axes[1]
@@ -103,12 +127,16 @@ def main():
             mask_pure = et_pure.notna()
             # On relie les points valides
             ax2.plot(df_site['Date'][mask_pure], et_pure[mask_pure], marker='D', linestyle='-', color='purple', label='ET Pure ICOS (LST in-situ)', linewidth=2.5)
-            
+1            
         # Courbe 2 : ICOS + Landsat
         ax2.plot(df_site['Date'], et_icos, marker='o', linestyle='-', color='forestgreen', label='ET ICOS (LST Landsat)', linewidth=2, alpha=0.8)
         
         # Courbe 3 : ERA5 + Landsat
         ax2.plot(df_site['Date'], et_era5, marker='s', linestyle='--', color='darkorange', label='ET ERA5 (LST Landsat DMS)', linewidth=2, alpha=0.8)
+        
+        # Courbe ERA5 DS
+        if has_ds:
+            ax2.plot(df_site['Date'], et_ds, marker='v', linestyle='-', color='dodgerblue', label='ET ERA5 DS (LST Landsat DMS)', linewidth=2, alpha=0.9)
         
         # Courbe 4 : ERA5 + Landsat B10
         if has_b10:

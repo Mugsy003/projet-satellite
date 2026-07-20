@@ -1,9 +1,10 @@
 import os
+import glob
 import re
-
 import rioxarray
 import pandas as pd
 import numpy as np
+import json
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 from pyproj import Transformer
@@ -130,7 +131,7 @@ for site, coords in SITES_PILOTES.items():
                     dict_dates_paths[dt]['tsharp_fusion'] = os.path.join(tif_folder, f)
 
     # --- Filtre de qualité nuageuse (seuil 30% de pixels invalides dans le B10) ---
-    SEUIL_NUAGES_COMPARAISON = 30  # %
+    SEUIL_NUAGES_COMPARAISON = 70  # %
     dates_a_exclure = set()
     for dt, paths in dict_dates_paths.items():
         b10_path = paths.get('b10')

@@ -102,6 +102,8 @@ def load_meteo_icos(site, target_dt, margin_min=60):
             'Ta':  row.get('TA_Consolide', np.nan),
             'u':   row.get('WS_Consolide', np.nan),
             'Rn':  row.get('Rn_Consolide', np.nan),
+            'R_s_down': row.get('SW_IN_Consolide', np.nan),
+            'R_l_down': row.get('LW_IN_Consolide', np.nan),
             'G':   row.get('G_Consolide', np.nan),
             'RH':  row.get('RH_Consolide', np.nan),
             'LST_ground': row.get('LST_Calculee', np.nan),
@@ -208,31 +210,84 @@ def load_meteo_era5(site, target_dt, margin_min=60):
     return None
 
 
-def load_meteo(site, target_dt, source='icos'):
+def load_meteo_era5_ds(site, date_str, target_dt, margin_min=60):
+    """Charge les données météo ERA5 et remplace la Ta par la Ta downscalée (1050m)."""
+    meteo = load_meteo_era5(site, target_dt, margin_min)
+    if meteo is None:
+        return None
+    
+    # Exécuter / Charger le downscaling
+    from Traitement.downscaling_Ta import process_site_date
+    import rioxarray
+    
+    tif_path = process_site_date(site, date_str)
+    if tif_path and os.path.exists(tif_path):
+        try:
+            coords = SITES_PILOTES[site]
+            ds = rioxarray.open_rasterio(tif_path).squeeze()
+            transformer = Transformer.from_crs("EPSG:4326", ds.rio.crs, always_xy=True)
+            x_utm, y_utm = transformer.transform(coords['lon'], coords['lat'])
+            val = ds.sel(x=x_utm, y=y_utm, method='nearest').values
+            if np.isfinite(val):
+                meteo['Ta'] = float(val)
+                meteo['source'] = 'ERA5_DS'
+        except Exception as e:
+            LOGGER.error(f"   ❌ Erreur extraction Ta downscalée pour {site} : {e}")
+            
+    return meteo
+    return meteo
+
+def load_meteo_era5_biais(site, target_dt, margin_min=60):
+    meteo = load_meteo_era5(site, target_dt, margin_min)
+    if meteo is None:
+        return None
+        
+    BIASES = {
+        "Gebesee": -0.81,
+        "Selhausen": -1.54,
+        "Lonzee": 0.68,
+        "Voulundgaard": -1.61,
+        "Klingenberg": 1.17,
+        "Estrees-Mons": 1.27,
+        "Borgo Cioffi": -0.88,
+        "Grignon": 1.00,
+        "Lamasquere": 6.91,
+    }
+    
+    if site in BIASES and pd.notna(meteo['Ta']):
+        meteo['Ta'] = meteo['Ta'] - BIASES[site]
+        meteo['source'] = 'ERA5_BIAIS'
+        LOGGER.info(f"      🌡️ Biais corrigé pour {site} (Correction: {-BIASES[site]:.2f}°C) -> Nouvelle Ta: {meteo['Ta']:.2f}°C")
+        
+    return meteo
+
+def load_meteo(site, target_dt, date_str, source='icos'):
     """
     Charge les données météo depuis la source choisie.
-    source='icos' : priorité ICOS > NOAA > GOL
-    source='era5' : uniquement ERA5
     """
     if source == 'era5':
         meteo = load_meteo_era5(site, target_dt)
-        if meteo is not None and pd.notna(meteo['Ta']):
-            return meteo
-        return None
-    
-    # Mode ICOS : priorité ICOS > NOAA > GOL
-    meteo = load_meteo_icos(site, target_dt)
-    if meteo is None or pd.isna(meteo['Ta']):
-        meteo = load_meteo_noaa(site, target_dt)
-    if meteo is None or pd.isna(meteo['Ta']):
-        meteo = load_meteo_gol(site, target_dt)
+    elif source == 'era5_biais':
+        meteo = load_meteo_era5_biais(site, target_dt)
+    elif source == 'era5_ds':
+        meteo = load_meteo_era5_ds(site, date_str, target_dt)
+    else:
+        # Mode ICOS : priorité ICOS > NOAA > GOL
+        meteo = load_meteo_icos(site, target_dt)
+        if meteo is None or pd.isna(meteo['Ta']):
+            meteo = load_meteo_noaa(site, target_dt)
+        if meteo is None or pd.isna(meteo['Ta']):
+            meteo = load_meteo_gol(site, target_dt)
         
-    # Toujours récupérer les flux radiatifs descendants d'ERA5, car les stations ne les fournissent pas tous
+    # Si les flux radiatifs ne sont pas fournis par la station, on les récupère depuis ERA5
     if meteo is not None and pd.notna(meteo['Ta']):
-        meteo_era5 = load_meteo_era5(site, target_dt)
-        if meteo_era5 is not None:
-            meteo['R_s_down'] = meteo_era5.get('R_s_down', np.nan)
-            meteo['R_l_down'] = meteo_era5.get('R_l_down', np.nan)
+        if pd.isna(meteo.get('R_s_down')) or pd.isna(meteo.get('R_l_down')):
+            meteo_era5 = load_meteo_era5(site, target_dt)
+            if meteo_era5 is not None:
+                if pd.isna(meteo.get('R_s_down')):
+                    meteo['R_s_down'] = meteo_era5.get('R_s_down', np.nan)
+                if pd.isna(meteo.get('R_l_down')):
+                    meteo['R_l_down'] = meteo_era5.get('R_l_down', np.nan)
         return meteo
     
     return None
@@ -557,7 +612,7 @@ def main(source='icos', lst_source='dms'):
             continue
         
         # Dossier de sortie pour les résultats ET (séparé par source)
-        suffix_source = "_ERA5" if source == 'era5' else ""
+        suffix_source = f"_{source.upper()}"
         suffix_lst = "_B10" if lst_source == 'b10' else ""
         et_output_dir = os.path.join(BASE_TIF_DIR, f"Serie_Temporelle_{site}", f"ET_TTME{suffix_source}{suffix_lst}")
         os.makedirs(et_output_dir, exist_ok=True)
@@ -602,8 +657,11 @@ def main(source='icos', lst_source='dms'):
             # Vérifier qu'on a les rasters nécessaires
             if lst_source == 'dms':
                 path_lst = paths.get('dms') or paths.get('b10')
-            else:
+            elif lst_source == 'b10':
                 path_lst = paths.get('b10')
+            elif lst_source == 'dms_biais':
+                path_lst = paths.get('dms')
+            
             path_ndvi = paths.get('ndvi')
             path_b2 = paths.get('b2')
             path_b4 = paths.get('b4')
@@ -615,8 +673,8 @@ def main(source='icos', lst_source='dms'):
                 nb_skip_data += 1
                 continue
             
-            # --- Charger les données météo ---
-            meteo = load_meteo(site, target_dt, source=source)
+            # --- Chargement de la météo ---
+            meteo = load_meteo(site, target_dt, date_str, source=source)
             if meteo is None:
                 nb_skip_meteo += 1
                 continue
@@ -699,9 +757,27 @@ def main(source='icos', lst_source='dms'):
                 nb_skip_meteo += 1
                 continue
                 
+            # Correction du biais LST si demandé
+            if lst_source == 'dms_biais':
+                BIASES_LST = {
+                    "Gebesee": -3.69,
+                    "Selhausen": 1.02,
+                    "Lonzee": 1.45,
+                    "Voulundgaard": 3.78,
+                    "Klingenberg": 2.24,
+                    "Estrees-Mons": 5.45,
+                    "Borgo Cioffi": 2.46,
+                    "Grignon": 4.11,
+                    "Lamasquere": 8.64,
+                }
+                if site in BIASES_LST:
+                    bias = BIASES_LST[site]
+                    lst_array = lst_array - bias
+                    LOGGER.info(f"      🛰️ Biais corrigé pour la LST de {site} (Correction: {-bias:.2f}°C)")
+            
             Rn_2d = calculer_bilan_radiatif(bandes_landsat, fc_array, lst_array, R_s_down, R_l_down)
             
-            z_m_source = 10.0 if meteo['source'] == 'ERA5' else Z_M
+            z_m_source = 10.0 if meteo['source'] in ['ERA5', 'ERA5_DS', 'ERA5_BIAIS'] else Z_M
             
             result = ttme_compute_et(
                 lst_array, ndvi_array,
@@ -795,8 +871,8 @@ def main(source='icos', lst_source='dms'):
     # --- Sauvegarde CSV de synthèse ---
     if resultats:
         df_final = pd.DataFrame(resultats)
-        suffix_source = f"_{source.upper()}" if source != 'icos' else ""
-        suffix_lst = "_B10" if lst_source == 'b10' else ""
+        suffix_source = f"_{source.upper()}"
+        suffix_lst = f"_{lst_source.upper()}" if lst_source != 'dms' else ""
         csv_path = os.path.join(OUTPUT_DIR, f"Resultats_ET_TTME{suffix_source}{suffix_lst}.csv")
         df_final.to_csv(csv_path, index=False)
         LOGGER.info(f"\n{'='*60}")
@@ -821,13 +897,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Calcul d'ET via le modèle TTME")
     parser.add_argument(
         '--source', type=str, default='icos',
-        choices=['icos', 'era5'],
-        help="Source des données météo : 'icos' (ICOS/NOAA/GOL) ou 'era5' (réanalyse ERA5)"
+        choices=['icos', 'era5', 'era5_ds', 'era5_biais'],
+        help="Source des données météo : 'icos', 'era5', 'era5_ds' ou 'era5_biais'"
     )
     parser.add_argument(
         '--lst', type=str, default='dms',
-        choices=['dms', 'b10'],
-        help="Source de la LST Landsat : 'dms' (sharpened) ou 'b10' (brute)"
+        choices=['dms', 'b10', 'dms_biais'],
+        help="Source de la LST : 'dms' (sharpened) ou 'b10' (brute) ou 'dms_biais' (dms corrigée des biais)"
     )
     args = parser.parse_args()
     main(source=args.source, lst_source=args.lst)

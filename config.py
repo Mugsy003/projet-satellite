@@ -24,24 +24,24 @@ for directory in [OUTPUT_DIR, PREVIEWS_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # --- Constantes du Projet ---
-TIME_OF_INTEREST = "2022-12-31/2024-01-01"
+TIME_OF_INTEREST = "2022-01-01/2023-01-01"
 
 BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16", "swir22"]
 BANDS_OF_INTEREST_S2 = ["B02", "B03", "B04", "B08", "B11", "SCL"]
 TIME_MARGIN_MINUTES = 60
 lt = 99
-ltd = 30
+ltd = 99  # Seuil augmenté pour ne pas rater d'images claires localement
 radius_km = 3
 radius_km_s3 = 25  # Rayon élargi pour S3 
-nb_images = 30
+nb_images = 500
 max_nuages_rejet = 70
 max_jours_fusion = 0
-min_couv_rejet = 40
+min_couv_rejet = 30
 couverture_parfaite = 95
 
 # Si True, l'extraction Landsat ignorera les images dont les dates sont déjà 
 # listées dans Outputs/manifest_dates_existantes.json pour aller en chercher de nouvelles.
-ignorer_existants = True
+ignorer_existants = False
 
 SITES_PILOTES = { 
    "Greece": {"lon": 22.080389, "lat": 38.17075},
@@ -119,27 +119,27 @@ PIDS_NOAA = {
 
 # --- Période de Visualisation (pour visualisation_performances.py) ---
 FILTRER_DATES_VISU = True
-DATE_DEBUT_VISU = "2022-12-31"
-DATE_FIN_VISU = "2024-08-31"
+DATE_DEBUT_VISU = "2022-01-01"
+DATE_FIN_VISU = "2023-01-01"
 
 # --- Pipeline : étapes à exécuter via main.py ---
 PIPELINE_STEPS = {
     "extraction_landsat": True,
-    "extraction_ecostress": True,
-    "extraction_sentinel": True,
-    "extraction_sentinel3": True,
-    "extraction_paires_eco_s2": True,
-    "extraction_paires_s3_s2": True,
+    "extraction_ecostress": False,
+    "extraction_sentinel": False,
+    "extraction_sentinel3": False,
+    "extraction_paires_eco_s2": False,
+    "extraction_paires_s3_s2": False,
     "transform_landsat": True,
-    "transform_ecostress": True,
-    "transform_sentinel": True,
-    "transform_sentinel3": True,
+    "transform_ecostress": False,
+    "transform_sentinel": False,
+    "transform_sentinel3": False,
     "sharpening_dms_landsat": True,
-    "sharpening_tsharp_landsat": True,
-    "sharpening_dms_sentinel3": True,
-    "fusion_dms": True,
-    "fusion_tsharp": True,
-    "fusion_dms_s3_s2": True,
+    "sharpening_tsharp_landsat": False,
+    "sharpening_dms_sentinel3": False,
+    "fusion_dms": False,
+    "fusion_tsharp": False,
+    "fusion_dms_s3_s2": False,
     "comparaison_icos": True,
     "visualisation": True,
 }
