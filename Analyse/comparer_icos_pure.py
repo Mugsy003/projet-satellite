@@ -26,6 +26,11 @@ def main():
         return
         
     df = pd.read_csv(FILE_ICOS)
+    
+    # Filter out Gebesee 2023 data as station values are wrong
+    mask_gebesee_2023 = (df['Site'] == 'Gebesee') & (df['Date'].str.startswith('2023'))
+    df = df[~mask_gebesee_2023]
+    
     print(f"✅ Fichier de base chargé : {len(df)} lignes.")
     
     # On va calculer la LST ICOS et l'ET ICOS Pure
@@ -37,8 +42,22 @@ def main():
         site = row['Site']
         date_str = row['Date']
         
-        # 1. Trouver LST_ground dans les fichiers météo ICOS
-        target_dt = pd.to_datetime(f"{date_str} 10:30:00")
+        # 1. Trouver l'heure réelle de passage du satellite dans le dossier TIF
+        tif_folder = os.path.join(OUTPUTS_DIR, f"Serie_Temporelle_{site}", "3_Indices", "TIF_Data")
+        target_dt = pd.to_datetime(f"{date_str} 10:30:00") # Par défaut si non trouvé
+        
+        if os.path.exists(tif_folder):
+            import glob
+            import re
+            tifs = glob.glob(os.path.join(tif_folder, f"{date_str}_*_{site}_NDVI.tif"))
+            if tifs:
+                basename = os.path.basename(tifs[0])
+                match = re.search(r"(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})", basename)
+                if match:
+                    date_part, hour, minute = match.groups()
+                    target_dt = pd.to_datetime(f"{date_part} {hour}:{minute}:00")
+
+        # 2. Trouver LST_ground dans les fichiers météo ICOS
         meteo_path = os.path.join(ICOS_METEO_DIR, f"donnees_icos_{site}.csv")
         
         lst_ground = np.nan

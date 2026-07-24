@@ -14,10 +14,17 @@ print("Chargement des donnees ET...")
 try:
     df_icos = pd.read_csv("Outputs/Resultats_ET_TTME_ICOS.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
     df_era5 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
-    df_era5_b10 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5_B10.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
 except Exception as e:
     print(f"Erreur lors du chargement des fichiers de base : {e}")
     exit(1)
+
+# B10 est optionnel (peut ne pas couvrir toutes les années)
+try:
+    df_era5_b10 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5_B10.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
+    has_b10 = True
+except Exception:
+    df_era5_b10 = pd.DataFrame()
+    has_b10 = False
 
 try:
     df_pure_icos = pd.read_csv("Outputs/Toutes_Comparaisons/Comparaison_ET_Landsat_vs_PureICOS.csv")[['Site', 'Date', 'ET_pure_ICOS (mm/h)']]
@@ -37,22 +44,24 @@ except Exception:
 # Renommer pour la fusion
 df_icos = df_icos.rename(columns={'ET_pixel (mm/h)': 'ET_ICOS_LST_Landsat'})
 df_era5 = df_era5.rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_LST_Landsat'})
-df_era5_b10 = df_era5_b10.rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_LST_B10'})
+if has_b10:
+    df_era5_b10 = df_era5_b10.rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_LST_B10'})
 if has_pure_icos:
     df_pure_icos = df_pure_icos.rename(columns={'ET_pure_ICOS (mm/h)': 'ET_Pure_ICOS'})
 if has_era5_ds:
     df_era5_ds = df_era5_ds.rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_DS_LST_Landsat'})
 
-# Fusionner les DataFrames
+# Fusionner les DataFrames — LEFT joins pour ne pas perdre de dates
 df_merged = pd.merge(df_icos, df_era5, on=['Site', 'Date'], how='inner')
-df_merged = pd.merge(df_merged, df_era5_b10, on=['Site', 'Date'], how='inner')
+if has_b10:
+    df_merged = pd.merge(df_merged, df_era5_b10, on=['Site', 'Date'], how='left')
 if has_pure_icos:
-    df_merged = pd.merge(df_merged, df_pure_icos, on=['Site', 'Date'], how='inner')
+    df_merged = pd.merge(df_merged, df_pure_icos, on=['Site', 'Date'], how='left')
 if has_era5_ds:
-    df_merged = pd.merge(df_merged, df_era5_ds, on=['Site', 'Date'], how='inner')
+    df_merged = pd.merge(df_merged, df_era5_ds, on=['Site', 'Date'], how='left')
 
-# Nettoyage
-df_valid = df_merged.dropna().copy()
+# Nettoyage — on ne droppe que sur les colonnes essentielles (ICOS + ERA5)
+df_valid = df_merged.dropna(subset=['ET_ICOS_LST_Landsat', 'ET_ERA5_LST_Landsat']).copy()
 print(f"{len(df_valid)} points de comparaison valides trouves.")
 
 if df_valid.empty:
@@ -89,9 +98,11 @@ for site in df_valid['Site'].unique():
     for nom, cfg in MODELES.items():
         col_erreur = f'Erreur_{nom.replace(" ", "_")}'
         ref_col = 'ET_Pure_ICOS' if has_pure_icos else 'ET_ICOS_LST_Landsat'
-        rmse = np.sqrt(mean_squared_error(subset[ref_col], subset[cfg['col']]))
-        mae = subset[col_erreur].abs().mean()
-        metrics_site.append({'Site': site, 'Modele': nom, 'RMSE': rmse, 'MAE': mae})
+        mask = subset[ref_col].notna() & subset[cfg['col']].notna()
+        if mask.sum() >= 2:
+            rmse = np.sqrt(mean_squared_error(subset.loc[mask, ref_col], subset.loc[mask, cfg['col']]))
+            mae = subset.loc[mask, col_erreur].abs().mean()
+            metrics_site.append({'Site': site, 'Modele': nom, 'RMSE': rmse, 'MAE': mae})
 
 if metrics_site:
     df_metrics = pd.DataFrame(metrics_site)
@@ -128,13 +139,15 @@ performance_global_data = []
 for nom, cfg in MODELES.items():
     col_erreur = f'Erreur_{nom.replace(" ", "_")}'
     ref_col = 'ET_Pure_ICOS' if has_pure_icos else 'ET_ICOS_LST_Landsat'
-    rmse_val = np.sqrt(mean_squared_error(df_valid[ref_col], df_valid[cfg['col']]))
-    mae_val = df_valid[col_erreur].abs().mean()
-    performance_global_data.append({
-        'Modele': nom, 
-        'RMSE Global': rmse_val,
-        'MAE Global': mae_val
-    })
+    mask = df_valid[ref_col].notna() & df_valid[cfg['col']].notna()
+    if mask.sum() >= 2:
+        rmse_val = np.sqrt(mean_squared_error(df_valid.loc[mask, ref_col], df_valid.loc[mask, cfg['col']]))
+        mae_val = df_valid.loc[mask, col_erreur].abs().mean()
+        performance_global_data.append({
+            'Modele': nom, 
+            'RMSE Global': rmse_val,
+            'MAE Global': mae_val
+        })
 
 if performance_global_data:
     df_perf_global = pd.DataFrame(performance_global_data)

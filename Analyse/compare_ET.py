@@ -13,7 +13,7 @@ OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 COMPARE_DIR = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons")
 os.makedirs(COMPARE_DIR, exist_ok=True)
 
-FILE_ICOS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME.csv")
+FILE_ICOS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ICOS.csv")
 FILE_ERA5 = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5.csv")
 FILE_ERA5_DS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5_DS.csv")
 
@@ -31,6 +31,11 @@ def main():
         sys.exit(1)
         
     df_icos = pd.read_csv(FILE_ICOS)
+    
+    # Filter out Gebesee 2023 data as station values are wrong
+    mask_gebesee_2023 = (df_icos['Site'] == 'Gebesee') & (df_icos['Date'].str.startswith('2023'))
+    df_icos = df_icos[~mask_gebesee_2023]
+    
     df_era5 = pd.read_csv(FILE_ERA5)
     
     # Charger ERA5_DS (optionnel)
@@ -51,9 +56,9 @@ def main():
     if has_era5_ds:
         df_era5_ds = df_era5_ds[[c for c in cols_to_keep if c in df_era5_ds.columns]]
     
-    df_merged = pd.merge(df_icos, df_era5, on=['Site', 'Date'], suffixes=('_ICOS', '_ERA5'))
+    df_merged = pd.merge(df_icos, df_era5, on=['Site', 'Date'], suffixes=('_ICOS', '_ERA5'), how='outer')
     if has_era5_ds:
-        df_merged = pd.merge(df_merged, df_era5_ds, on=['Site', 'Date'])
+        df_merged = pd.merge(df_merged, df_era5_ds, on=['Site', 'Date'], how='outer')
         df_merged.rename(columns={
             'LE_pixel (W/m²)': 'LE_pixel (W/m²)_ERA5_DS',
             'ET_pixel (mm/h)': 'ET_pixel (mm/h)_ERA5_DS',
@@ -69,18 +74,18 @@ def main():
     var_et = 'ET_pixel (mm/h)'
     var_le = 'LE_pixel (W/m²)'
     
-    df_merged = df_merged.dropna(subset=[f'{var_et}_ICOS', f'{var_et}_ERA5'])
-    if len(df_merged) == 0:
+    df_merged_metrics = df_merged.dropna(subset=[f'{var_et}_ICOS', f'{var_et}_ERA5'])
+    if len(df_merged_metrics) == 0:
         sys.exit(0)
         
-    et_icos = df_merged[f'{var_et}_ICOS']
-    et_era5 = df_merged[f'{var_et}_ERA5']
+    et_icos = df_merged_metrics[f'{var_et}_ICOS']
+    et_era5 = df_merged_metrics[f'{var_et}_ERA5']
     rmse_et = np.sqrt(mean_squared_error(et_icos, et_era5))
     bias_et = np.mean(et_era5 - et_icos)
     r2_et = r2_score(et_icos, et_era5)
     
-    le_icos = df_merged[f'{var_le}_ICOS']
-    le_era5 = df_merged[f'{var_le}_ERA5']
+    le_icos = df_merged_metrics[f'{var_le}_ICOS']
+    le_era5 = df_merged_metrics[f'{var_le}_ERA5']
     rmse_le = np.sqrt(mean_squared_error(le_icos, le_era5))
     bias_le = np.mean(le_era5 - le_icos)
     r2_le = r2_score(le_icos, le_era5)
@@ -90,15 +95,15 @@ def main():
     print(f"ET: RMSE={rmse_et:.4f}, Biais={bias_et:.4f}, R²={r2_et:.4f}")
     print(f"LE: RMSE={rmse_le:.2f}, Biais={bias_le:.2f}, R²={r2_le:.2f}")
     
-    if has_era5_ds and f'{var_et}_ERA5_DS' in df_merged.columns:
-        et_ds = df_merged[f'{var_et}_ERA5_DS']
+    if has_era5_ds and f'{var_et}_ERA5_DS' in df_merged_metrics.columns:
+        et_ds = df_merged_metrics[f'{var_et}_ERA5_DS']
         mask = et_ds.notna() & et_icos.notna()
         if mask.sum() > 0:
             rmse_et_ds = np.sqrt(mean_squared_error(et_icos[mask], et_ds[mask]))
             bias_et_ds = np.mean(et_ds[mask] - et_icos[mask])
             r2_et_ds = r2_score(et_icos[mask], et_ds[mask])
             
-            le_ds = df_merged[f'{var_le}_ERA5_DS']
+            le_ds = df_merged_metrics[f'{var_le}_ERA5_DS']
             rmse_le_ds = np.sqrt(mean_squared_error(le_icos[mask], le_ds[mask]))
             bias_le_ds = np.mean(le_ds[mask] - le_icos[mask])
             r2_le_ds = r2_score(le_icos[mask], le_ds[mask])

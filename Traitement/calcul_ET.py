@@ -61,22 +61,154 @@ def extract_datetime_from_filename(filename):
     return None
 
 
-def compute_fc(ndvi, params):
-    """Calcule la fraction de couverture végétale à partir du NDVI."""
-    ndvi_sol = params.get("NDVI_SOL", 0.15)
-    ndvi_veg = params.get("NDVI_VEG", 0.90)
-    fc = ((ndvi - ndvi_sol) / (ndvi_veg - ndvi_sol)) ** 2
+def compute_fc(ndvi_array):
+    """
+    Calcule la fraction de couverture végétale à partir du NDVI.
+    Méthode : Long & Singh (2012), Eq. 1.
+    
+    Les seuils NDVI_min et NDVI_max sont extraits dynamiquement de la scène
+    courante via les percentiles 1 et 99 pour ignorer les outliers (eau, nuages).
+    
+    Formule : fc = (NDVI - NDVI_min) / (NDVI_max - NDVI_min)
+    """
+    valid = np.isfinite(ndvi_array) & (ndvi_array > -1) & (ndvi_array < 1)
+    if np.sum(valid) < 10:
+        return np.clip(ndvi_array, 0.0, 1.0)  # Fallback
+    
+    ndvi_min = np.nanpercentile(ndvi_array[valid], 1)
+    ndvi_max = np.nanpercentile(ndvi_array[valid], 99)
+    
+    denom = ndvi_max - ndvi_min
+    if denom < 0.05:  # Scène trop homogène
+        denom = 0.05
+    
+    fc = (ndvi_array - ndvi_min) / denom
     return np.clip(fc, 0.0, 1.0)
 
 
-def compute_aerodynamic_resistance(u, z0m, z0h, z_m=Z_M):
+def compute_aerodynamic_resistance(u, z0m, z0h, d=0.0, z_m=Z_M):
     """
     Calcule la résistance aérodynamique (s/m) en conditions de stabilité neutre.
-    r_ah = ln(z_m/z0m) * ln(z_h/z0h) / (k² * u)
+    Long & Singh (2012), Section 2.4.
+    
+    r_ah = ln((z_m - d) / z0m) * ln((z_h - d) / z0h) / (k² * u)
+    
+    Paramètres :
+        u    : vitesse du vent (m/s)
+        z0m  : longueur de rugosité pour la quantité de mouvement (m)
+        z0h  : longueur de rugosité pour la chaleur (m)
+        d    : hauteur de déplacement (m), 0.0 pour sol nu
+        z_m  : hauteur de mesure du vent (m)
     """
     u = np.maximum(u, 0.5)  # Vitesse du vent minimale pour éviter division par 0
-    r_ah = (np.log(z_m / z0m) * np.log(Z_H / z0h)) / (K_VK**2 * u)
+    z_eff = max(z_m - d, z0m * 2)  # Garantir z_eff > z0m
+    z_h_eff = max(Z_H - d, z0h * 2)  # Garantir z_h_eff > z0h
+    r_ah = (np.log(z_eff / z0m) * np.log(z_h_eff / z0h)) / (K_VK**2 * u)
     return r_ah
+
+
+def decompose_albedo(alpha_array, fc_array, n_bins=100):
+    """
+    Décomposition dynamique de l'albédo dans l'espace (fc, alpha).
+    Long & Singh (2012), Section 2.5.
+    
+    Algorithme :
+    1. Divise la plage de fc en n_bins intervalles.
+    2. Extrait les extrema d'albédo (max/min) par bin.
+    3. Nettoie les outliers (mu ± sigma).
+    4. Régression linéaire sur le bord chaud (max) et froid (min).
+    5. Déduit alpha_s et alpha_c pour les bilans radiatifs des limites.
+    
+    Retourne :
+        dict avec 'alpha_s_max', 'alpha_c_max', 'alpha_s_min', 'alpha_c_min'
+        et un booléen 'valid' indiquant si la décomposition a réussi.
+    """
+    # Valeurs par défaut (fallback)
+    defaults = {
+        'alpha_s_max': 0.25, 'alpha_c_max': 0.20,
+        'alpha_s_min': 0.10, 'alpha_c_min': 0.08,
+        'valid': False
+    }
+    
+    # Masque de validité
+    valid = np.isfinite(alpha_array) & np.isfinite(fc_array) & \
+            (alpha_array > 0.01) & (alpha_array < 0.60) & \
+            (fc_array >= 0.0) & (fc_array <= 1.0)
+    
+    if np.sum(valid) < 500:
+        return defaults
+    
+    alpha_v = alpha_array[valid]
+    fc_v = fc_array[valid]
+    
+    # Créer les bins de fc
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    
+    alpha_maxs = []
+    alpha_mins = []
+    fc_centers_max = []
+    fc_centers_min = []
+    
+    for i in range(n_bins):
+        mask_bin = (fc_v >= bin_edges[i]) & (fc_v < bin_edges[i + 1])
+        if np.sum(mask_bin) < 5:
+            continue
+        alpha_bin = alpha_v[mask_bin]
+        alpha_maxs.append(np.max(alpha_bin))
+        alpha_mins.append(np.min(alpha_bin))
+        fc_centers_max.append(bin_centers[i])
+        fc_centers_min.append(bin_centers[i])
+    
+    if len(alpha_maxs) < 10:
+        return defaults
+    
+    alpha_maxs = np.array(alpha_maxs)
+    alpha_mins = np.array(alpha_mins)
+    fc_centers_max = np.array(fc_centers_max)
+    fc_centers_min = np.array(fc_centers_min)
+    
+    # Nettoyage des outliers (mu ± sigma) pour les maxima
+    mu_max, std_max = np.mean(alpha_maxs), np.std(alpha_maxs)
+    keep_max = np.abs(alpha_maxs - mu_max) <= std_max
+    if np.sum(keep_max) < 5:
+        keep_max = np.ones_like(keep_max, dtype=bool)  # Garde tout si trop de nettoyage
+    
+    # Nettoyage des outliers pour les minima
+    mu_min, std_min = np.mean(alpha_mins), np.std(alpha_mins)
+    keep_min = np.abs(alpha_mins - mu_min) <= std_min
+    if np.sum(keep_min) < 5:
+        keep_min = np.ones_like(keep_min, dtype=bool)
+    
+    # Régressions linéaires
+    try:
+        # Bord chaud (warm edge) : régression sur les alpha_max
+        coef_warm = np.polyfit(fc_centers_max[keep_max], alpha_maxs[keep_max], 1)
+        # Bord froid (cold edge) : régression sur les alpha_min
+        coef_cold = np.polyfit(fc_centers_min[keep_min], alpha_mins[keep_min], 1)
+    except (np.linalg.LinAlgError, ValueError):
+        return defaults
+    
+    # Extraction des albédos aux limites
+    # alpha = coef[0] * fc + coef[1]
+    alpha_s_max = coef_warm[1]           # Intersection à fc=0 (sol nu sec)
+    alpha_c_max = coef_warm[0] + coef_warm[1]  # Intersection à fc=1 (canopée sèche)
+    alpha_s_min = coef_cold[1]           # Intersection à fc=0 (sol nu humide)
+    alpha_c_min = coef_cold[0] + coef_cold[1]  # Intersection à fc=1 (canopée humide)
+    
+    # Borner les résultats pour rester physiquement réaliste
+    alpha_s_max = np.clip(alpha_s_max, 0.10, 0.45)
+    alpha_c_max = np.clip(alpha_c_max, 0.08, 0.35)
+    alpha_s_min = np.clip(alpha_s_min, 0.03, 0.25)
+    alpha_c_min = np.clip(alpha_c_min, 0.03, 0.20)
+    
+    return {
+        'alpha_s_max': float(alpha_s_max),
+        'alpha_c_max': float(alpha_c_max),
+        'alpha_s_min': float(alpha_s_min),
+        'alpha_c_min': float(alpha_c_min),
+        'valid': True
+    }
 
 
 # =============================================================================
@@ -197,13 +329,13 @@ def load_meteo_era5(site, target_dt, margin_min=60):
         idx_best = diff[mask].idxmin()
         row = df.loc[idx_best]
         return {
-            'Ta':  row.get('TA_Consolide', np.nan),
-            'u':   row.get('WS_Consolide', np.nan),
-            'Rn':  row.get('Rn_Consolide', np.nan),
-            'R_s_down': row.get('SW_IN_Consolide', np.nan),
-            'R_l_down': row.get('LW_IN_Consolide', np.nan),
+            'Ta':  row.get('TA_Consolide', row.get('Ta (°C)', np.nan)),
+            'u':   row.get('WS_Consolide', row.get('u (m/s)', np.nan)),
+            'Rn':  row.get('Rn_Consolide', row.get('Rn (W/m²)', np.nan)),
+            'R_s_down': row.get('SW_IN_Consolide', row.get('R_s_down (W/m²)', np.nan)),
+            'R_l_down': row.get('LW_IN_Consolide', row.get('R_l_down (W/m²)', np.nan)),
             'G':   np.nan,
-            'RH':  row.get('RH_Consolide', np.nan),
+            'RH':  row.get('RH_Consolide', row.get('RH (%)', np.nan)),
             'LST_ground': row.get('LST_Calculee', np.nan),
             'source': 'ERA5'
         }
@@ -337,13 +469,15 @@ def calculer_bilan_radiatif(bandes_landsat, fc, lst_celsius, R_s_down, R_l_down)
     
     return Rn
 
-def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params, G_measured=None, transform=None, crs=None, z_m=Z_M):
+def ttme_compute_et(lst_array, ndvi_array, alpha_array, Ta, u, Rn, R_s_down, R_l_down, params, G_measured=None, transform=None, crs=None, z_m=Z_M):
     """
     Implémente le modèle TTME (Two-source Trapezoid Model for Evapotranspiration).
+    Aligné sur Long & Singh (2012).
     
     Paramètres :
         lst_array   : np.ndarray 2D - LST en °C (ex: DMS sharpened à 30m)
         ndvi_array  : np.ndarray 2D - NDVI
+        alpha_array : np.ndarray 2D - Albédo de surface (Liang, 2001)
         Ta          : float - Température de l'air (°C)
         u           : float - Vitesse du vent (m/s)
         Rn          : np.ndarray 2D - Rayonnement net (W/m²) spatialisé
@@ -360,11 +494,7 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params
             'EF', 'T_s_max', 'T_c_max', 'transform', 'crs'
     """
     
-    # Extraire les paramètres
-    z0m_s = params.get("Z0M_SOIL", 0.005)
-    z0h_s = params.get("Z0H_SOIL", 0.0005)
-    z0m_c = params.get("Z0M_VEG", 0.10)
-    z0h_c = params.get("Z0H_VEG", 0.01)
+    # Paramètres de flux de chaleur dans le sol
     cg_s  = params.get("C_G_SOIL", 0.30)
     cg_c  = params.get("C_G_VEG", 0.05)
     
@@ -375,27 +505,43 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params
     # Masque de validité
     valid = np.isfinite(lst_array) & np.isfinite(ndvi_array) & (lst_array > -50) & (lst_array < 80)
     
-    # Fraction de couverture végétale
-    fc = np.where(valid, compute_fc(ndvi_array, params), np.nan)
+    # Fraction de couverture végétale — Tâche 1 : Percentiles dynamiques (Long & Singh, Eq. 1)
+    fc = np.where(valid, compute_fc(ndvi_array), np.nan)
     
     # Vitesse du vent minimale
     u = max(u, 0.5)
     
     # =========================================================================
     # PHASE 2 : Calcul des Limites Théoriques (Boundary Conditions)
+    #           Long & Singh (2012), Section 2.3 & 2.4
     # =========================================================================
     
-    # Résistances aérodynamiques (neutralité supposée)
-    r_ah_s = compute_aerodynamic_resistance(u, z0m_s, z0h_s, z_m=z_m)  # Sol nu
-    r_ah_c = compute_aerodynamic_resistance(u, z0m_c, z0h_c, z_m=z_m)    # Canopée
+    # --- Tâche 3 : Résistances aérodynamiques avec constantes génériques ---
+    # Sol nu sec : Z0m = 0.005 m, Z0h = 0.001 m, d = 0 m
+    Z0M_SOIL = 0.005
+    Z0H_SOIL = 0.001
+    r_ah_s = compute_aerodynamic_resistance(u, Z0M_SOIL, Z0H_SOIL, d=0.0, z_m=z_m)
+    
+    # Canopée sèche : hc = 1 m hypothétique → d = 2/3 m, Z0m = hc/10 = 0.1 m, Z0h = Z0m/7
+    HC_REF  = 1.0       # Hauteur de végétation hypothétique (m)
+    D_REF   = 2.0 * HC_REF / 3.0   # Displacement height = 0.667 m
+    Z0M_VEG = HC_REF / 10.0         # = 0.1 m
+    Z0H_VEG = Z0M_VEG / 7.0         # ≈ 0.014 m
+    r_ah_c = compute_aerodynamic_resistance(u, Z0M_VEG, Z0H_VEG, d=D_REF, z_m=z_m)
     
     # Correction de stabilité simplifiée pour le bord chaud (convection libre)
-    # On bride les résistances car la turbulence thermique les détruit à haute température.
     r_ah_s = min(r_ah_s, 110.0)
     r_ah_c = min(r_ah_c, 30.0)
     
-    # Les bilans radiatifs des patchs "purs" utilisent le Rn global du pixel
-    # On évite ainsi la double pondération lors de la recombinaison finale
+    # --- Tâche 2 : Décomposition dynamique de l'albédo (Section 2.5) ---
+    albedo_decomp = decompose_albedo(alpha_array, fc)
+    alpha_s_dry = albedo_decomp['alpha_s_max']  # Albédo sol nu sec
+    alpha_c_dry = albedo_decomp['alpha_c_max']  # Albédo canopée sèche
+    
+    if albedo_decomp['valid']:
+        LOGGER.info(f"      🎨 Albédo dynamique : α_s,max={alpha_s_dry:.3f} | α_c,max={alpha_c_dry:.3f}")
+    else:
+        LOGGER.info(f"      🎨 Albédo fallback : α_s,max={alpha_s_dry:.3f} | α_c,max={alpha_c_dry:.3f}")
     
     # Flux de chaleur dans le sol pour les patchs purs
     if G_measured is not None and pd.notna(G_measured):
@@ -414,18 +560,18 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params
     
     # --- Limite Chaude (Upper Boundary) ---
     # Sol nu totalement sec (LE = 0) : H_s = Rn_theo_s - G_s
-    # On force l'albédo à 0.25 et l'émissivité à 0.971 pour le sol nu sec, et on itère
+    # Albédo dynamique α_s,max et émissivité 0.971 pour le sol nu sec
     T_s_max_iter = Ta + 10.0
-    for _ in range(3):
-        Rn_s_theo = (1 - 0.25) * R_s_down + 0.971 * R_l_down - 0.971 * SIGMA * ((T_s_max_iter + 273.15)**4)
+    for _ in range(5):  # 5 itérations pour meilleure convergence
+        Rn_s_theo = (1 - alpha_s_dry) * R_s_down + 0.971 * R_l_down - 0.971 * SIGMA * ((T_s_max_iter + 273.15)**4)
         T_s_max_iter = Ta + r_ah_s * (Rn_s_theo * (1.0 - cg_s)) / RHO_CP
     T_s_max = T_s_max_iter
     
     # Canopée totalement sèche (LE = 0) : H_c = Rn_theo_c - G_c
-    # On force l'albédo à 0.20 et l'émissivité à 0.989 pour la canopée
+    # Albédo dynamique α_c,max et émissivité 0.989 pour la canopée
     T_c_max_iter = Ta + 5.0
-    for _ in range(3):
-        Rn_c_theo = (1 - 0.20) * R_s_down + 0.989 * R_l_down - 0.989 * SIGMA * ((T_c_max_iter + 273.15)**4)
+    for _ in range(5):
+        Rn_c_theo = (1 - alpha_c_dry) * R_s_down + 0.989 * R_l_down - 0.989 * SIGMA * ((T_c_max_iter + 273.15)**4)
         T_c_max_iter = Ta + r_ah_c * (Rn_c_theo * (1.0 - cg_c)) / RHO_CP
     T_c_max = T_c_max_iter
     
@@ -438,6 +584,7 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params
     
     # =========================================================================
     # PHASE 3 : Décomposition de la Température (cœur du TTME)
+    #           Long & Singh (2012), Section 2.2
     # =========================================================================
     
     # Pour chaque pixel : position relative dans le trapèze
@@ -473,6 +620,7 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params
     
     # =========================================================================
     # PHASE 4 : Paramétrisation Séparée des Flux (Géométrique TTME)
+    #           Long & Singh (2012), Section 2.6
     # =========================================================================
     
     # L'énergie disponible pour chaque pôle pur
@@ -503,6 +651,7 @@ def ttme_compute_et(lst_array, ndvi_array, Ta, u, Rn, R_s_down, R_l_down, params
     
     # =========================================================================
     # PHASE 5 : Synthèse - ET totale
+    #           Long & Singh (2012), Eq. 1
     # =========================================================================
     
     # LE total (mosaïque pondérée par fc - Equation 1)
@@ -742,11 +891,14 @@ def main(source='icos', lst_source='dms'):
             LOGGER.info(f"   🌿 {date_str} : Calcul TTME (source météo: {meteo['source']})...")
             
             # Récupérer les paramètres du site
-            site_params = SITE_TTME_PARAMS.get(site, SITE_TTME_PARAMS["default"])
+            site_params = SITE_TTME_PARAMS.get("default")
             
-            # Calcul du bilan radiatif spatialisé
-            fc_array = compute_fc(ndvi_array, site_params)
+            # Calcul de fc et de l'albédo spatialisé (Liang, 2001)
+            fc_array = compute_fc(ndvi_array)
             bandes_landsat = {'B2': b2_array, 'B4': b4_array, 'B5': b5_array, 'B6': b6_array, 'B7': b7_array}
+            alpha_array = (0.356 * b2_array + 0.130 * b4_array + 0.373 * b5_array + 
+                           0.085 * b6_array + 0.072 * b7_array - 0.0018)
+            alpha_array = np.clip(alpha_array, 0.01, 0.60)
             
             # On utilise le rayonnement de base pour tout le monde si ERA5
             R_s_down = meteo.get('R_s_down', np.nan)
@@ -780,7 +932,7 @@ def main(source='icos', lst_source='dms'):
             z_m_source = 10.0 if meteo['source'] in ['ERA5', 'ERA5_DS', 'ERA5_BIAIS'] else Z_M
             
             result = ttme_compute_et(
-                lst_array, ndvi_array,
+                lst_array, ndvi_array, alpha_array,
                 Ta=Ta, u=u, Rn=Rn_2d, R_s_down=R_s_down, R_l_down=R_l_down, params=site_params, G_measured=G_meas,
                 transform=transform, crs=crs, z_m=z_m_source
             )
