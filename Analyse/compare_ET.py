@@ -10,12 +10,12 @@ if sys.platform.startswith('win'):
 
 # Configuration des chemins
 OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Outputs")
-COMPARE_DIR = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons")
+COMPARE_DIR = os.path.join(OUTPUTS_DIR, "Analyses_Graphiques", "1_Performances_TTME")
 os.makedirs(COMPARE_DIR, exist_ok=True)
 
-FILE_ICOS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ICOS.csv")
-FILE_ERA5 = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5.csv")
-FILE_ERA5_DS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5_DS.csv")
+FILE_ICOS = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Resultats_ET_TTME_ICOS.csv")
+FILE_ERA5 = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Resultats_ET_TTME_ERA5.csv")
+FILE_ERA5_DS = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Resultats_ET_TTME_ERA5_DS.csv")
 
 def main():
     print("=" * 60)

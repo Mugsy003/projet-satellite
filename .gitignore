@@ -46,7 +46,8 @@ env_sr4rs/
 .DS_Store
 
 # Project-specific large files and outputs
-Outputs/
+Outputs/*
+!Outputs/Analyses_Graphiques/
 Outputs_NOAA/
 Outputs_ICOS/
 Previews_Landsat/

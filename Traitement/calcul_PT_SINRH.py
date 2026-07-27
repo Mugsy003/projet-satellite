@@ -49,7 +49,7 @@ def _calc_delta(T):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--source', type=str, choices=['era5', 'icos'], default='era5')
+    parser.add_argument('--source', type=str, choices=['era5', 'icos', 'era5_ds'], default='era5')
     args = parser.parse_args()
     
     source = args.source
@@ -148,7 +148,7 @@ def main():
             
     if resultats:
         df = pd.DataFrame(resultats)
-        csv_path = os.path.join(OUTPUT_DIR, f"Resultats_ET_PT_SINRH_{source.upper()}.csv")
+        csv_path = os.path.join(OUTPUT_DIR, "Resultats_CSV", f"Resultats_ET_PT_SINRH_{source.upper()}.csv")
         if os.path.exists(csv_path):
             df_old = pd.read_csv(csv_path)
             for site in df['Site'].unique():

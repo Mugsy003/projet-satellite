@@ -132,6 +132,7 @@ def calculate_pt_sinrh_et(
     # Fraction du rayonnement photosynthétiquement actif absorbé (fAPAR)
     # Relation linéaire empirique avec le SAVI (Myneni & Williams, 1994)
     f_APAR = M1 * SAVI + B1
+    f_APAR = np.clip(f_APAR, 1e-6, 0.95)  # Borne physique : ]0, 0.95]
 
     # Fraction de couverture végétale (fc ≡ fIPAR)
     f_c = f_IPAR.copy()
@@ -198,14 +199,14 @@ def calculate_pt_sinrh_et(
     # Rapport entre la lumière absorbée (fAPAR) et interceptée (fIPAR).
     # Un rapport proche de 1 = feuilles saines ; < 1 = feuilles sénescentes.
     f_IPAR_safe = np.where(f_IPAR > 1e-6, f_IPAR, 1e-6)
-    f_g = f_APAR / f_IPAR_safe
+    f_g = np.clip(f_APAR / f_IPAR_safe, 0.0, 1.0)
 
     # --- f_M : Contrainte de maturité de la plante ---
     # Compare le fAPAR actuel au fAPAR maximal observé sur la période
     # temporelle pour chaque pixel → indicateur phénologique.
     f_APARmax = np.nanmax(f_APAR, axis=0, keepdims=True)  # (1, Y, X)
     f_APARmax_safe = np.where(f_APARmax > 1e-6, f_APARmax, 1e-6)
-    f_M = f_APAR / f_APARmax_safe
+    f_M = np.clip(f_APAR / f_APARmax_safe, 0.0, 1.0)
 
     # --- f_T : Contrainte de température optimale ---
     # Gaussienne centrée sur T_opt : la transpiration est maximale quand

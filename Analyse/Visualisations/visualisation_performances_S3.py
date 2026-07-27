@@ -13,7 +13,7 @@ from config import FILTRER_DATES_VISU, DATE_DEBUT_VISU, DATE_FIN_VISU
 os.makedirs("Outputs_performances", exist_ok=True)
 
 # 1. Charger les données Sentinel-3
-csv_path = "Outputs/Validation_Saisonniere_LST_S3.csv"
+csv_path = "Outputs/Resultats_CSV/Validation_Saisonniere_LST_S3.csv"
 if not os.path.exists(csv_path):
     print("Fichier CSV de validation Sentinel-3 introuvable.")
     print("Veuillez d'abord exécuter : python comparaison_S3_ICOS.py")

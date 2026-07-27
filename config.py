@@ -85,6 +85,18 @@ PIDS_ICOS = {
     "Estrees-Mons": "Fowem-0Vzv3g3zElIav5uxO8"
 }
 
+PIDS_ICOS_L2_FLUXES = {
+    'Lamasquere': 'FeRI6YAnBB_aJ2XTCrDhreXx',
+    'Lonzee': 'ZBxsi7rIpGVZqwqrcGQtkrgc',
+    'Gebesee': 'NSoD7vTW8nCxCLDfk8qzZjOG',
+    'Voulundgaard': '7kPmVcMo_x8jGNWG29pVFAUG',
+    'Selhausen': '1WjKCaY068cXzcHKgLbTE-YI',
+    'Grignon': 'bEjMUuuYihCIxxm5nS8VrXdw',
+    'Borgo Cioffi': 'QF40ymHFpd0aHjhGyKztLMYp',
+    'Klingenberg': 'wo3-IvIRLi9cPyDI3d-mOe7z',
+    'Estrees-Mons': 'YnZlki8zBvNBivdGpfd1w930',
+}
+
 # --- PIDs / Codes des stations NOAA SURFRAD ---
 PIDS_NOAA = {
     "Bondville": "bon",

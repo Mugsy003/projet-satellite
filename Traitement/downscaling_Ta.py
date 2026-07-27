@@ -589,7 +589,11 @@ def process_site_date(site, date_str):
 
     # 2. Charger / télécharger le champ 2D de Ta ERA5
     LOGGER.info("\n   🌐 Chargement du champ 2D de Ta ERA5-Land...")
-    from Extraction.ERA5.extraction_ERA5 import download_era5_ta_2d
+    try:
+        from Extraction.ERA5.extraction_ERA5 import download_era5_ta_2d
+    except ModuleNotFoundError:
+        LOGGER.error("   ❌ Module 'ee' manquant. Impossible de télécharger ERA5-Land.")
+        return None
 
     target_dt = pd.to_datetime(f"{date_str} 10:30:00")
     ta_era5 = download_era5_ta_2d(site, coords['lon'], coords['lat'], target_dt)

@@ -21,8 +21,8 @@ def compute_aerodynamic_resistance(u, z0m, z0h, z_m=Z_M):
 
 def main():
     # Load original ET TTME to get fc_pixel and Ta
-    df = pd.read_csv("Outputs/Resultats_ET_TTME.csv")
-    df_era5 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5.csv")
+    df = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME.csv")
+    df_era5 = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5.csv")
     
     et_pure_list = []
     

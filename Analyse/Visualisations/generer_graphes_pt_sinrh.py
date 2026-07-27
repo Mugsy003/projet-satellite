@@ -19,8 +19,8 @@ import matplotlib.dates as mdates
 # ===========================================================================
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTPUTS_DIR = os.path.join(PROJECT_ROOT, "Outputs")
-CSV_PT = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "Comparaison_ET_PT_SINRH.csv")
-OUT_DIR = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "PT_SINRH")
+CSV_PT = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Comparaison_ET_PT_SINRH.csv")
+OUT_DIR = os.path.join(OUTPUTS_DIR, "Analyses_Graphiques", "3_TTME_vs_PT_SINRH")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 

@@ -8,9 +8,9 @@ import os
 plt.style.use('default')
 sns.set_theme(style="whitegrid", rc={"axes.facecolor": "#f8f9fa", "figure.facecolor": "white", "grid.color": "#e0e0e0", "text.color": "black", "axes.labelcolor": "black", "xtick.color": "black", "ytick.color": "black"})
 
-df_icos = pd.read_csv('Outputs/Resultats_ET_TTME_ICOS.csv')[['Site', 'Date', 'ET_pixel (mm/h)']].rename(columns={'ET_pixel (mm/h)': 'ET_ICOS'})
-df_era5 = pd.read_csv('Outputs/Resultats_ET_TTME_ERA5.csv')[['Site', 'Date', 'ET_pixel (mm/h)']].rename(columns={'ET_pixel (mm/h)': 'ET_ERA5'})
-df_ds = pd.read_csv('Outputs/Resultats_ET_TTME_ERA5_DS.csv')[['Site', 'Date', 'ET_pixel (mm/h)']].rename(columns={'ET_pixel (mm/h)': 'ET_DS'})
+df_icos = pd.read_csv('Outputs/Resultats_CSV/Resultats_ET_TTME_ICOS.csv')[['Site', 'Date', 'ET_pixel (mm/h)']].rename(columns={'ET_pixel (mm/h)': 'ET_ICOS'})
+df_era5 = pd.read_csv('Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5.csv')[['Site', 'Date', 'ET_pixel (mm/h)']].rename(columns={'ET_pixel (mm/h)': 'ET_ERA5'})
+df_ds = pd.read_csv('Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5_DS.csv')[['Site', 'Date', 'ET_pixel (mm/h)']].rename(columns={'ET_pixel (mm/h)': 'ET_DS'})
 
 df = pd.merge(df_icos, df_era5, on=['Site', 'Date'], how='inner')
 df = pd.merge(df, df_ds, on=['Site', 'Date'], how='inner')

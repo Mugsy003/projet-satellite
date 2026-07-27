@@ -13,9 +13,9 @@ plt.style.use('dark_background')
 sns.set_theme(style="darkgrid", rc={"axes.facecolor": "#1c1c22", "figure.facecolor": "#1c1c22", "grid.color": "#2d2d35", "text.color": "white", "axes.labelcolor": "white", "xtick.color": "white", "ytick.color": "white"})
 
 # Load data
-df_pure = pd.read_csv('c:/Users/a951444/Workspace/projet-satellite/Outputs/Toutes_Comparaisons/Comparaison_ET_Landsat_vs_PureICOS.csv')
-df_era5 = pd.read_csv('c:/Users/a951444/Workspace/projet-satellite/Outputs/Resultats_ET_TTME_ERA5.csv')
-df_ds = pd.read_csv('c:/Users/a951444/Workspace/projet-satellite/Outputs/Resultats_ET_TTME_ERA5_DS.csv')
+df_pure = pd.read_csv('c:/Users/a951444/Workspace/projet-satellite/Outputs/Resultats_CSV/Comparaison_ET_Landsat_vs_PureICOS.csv')
+df_era5 = pd.read_csv('c:/Users/a951444/Workspace/projet-satellite/Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5.csv')
+df_ds = pd.read_csv('c:/Users/a951444/Workspace/projet-satellite/Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5_DS.csv')
 
 def get_col(df, name):
     for c in df.columns:
@@ -69,7 +69,7 @@ ax2.text(0.05, 0.95, textstr2, transform=ax2.transAxes, fontsize=12,
 
 plt.tight_layout(rect=[0, 0, 1, 0.93])
 
-output_path = 'c:/Users/a951444/Workspace/projet-satellite/Outputs/Comparaison_ET/Comparaison_Ta_ERA5_vs_DS.png'
-os.makedirs('c:/Users/a951444/Workspace/projet-satellite/Outputs/Comparaison_ET', exist_ok=True)
+output_path = 'c:/Users/a951444/Workspace/projet-satellite/Outputs/Analyses_Graphiques/1_Performances_TTME/Comparaison_Ta_ERA5_vs_DS.png'
+os.makedirs('c:/Users/a951444/Workspace/projet-satellite/Outputs/Analyses_Graphiques/1_Performances_TTME', exist_ok=True)
 plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor=fig.get_facecolor())
 print(f"Graphique sauvegardé: {output_path}")

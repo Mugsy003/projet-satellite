@@ -8,10 +8,10 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 # Configuration des chemins
 OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Outputs")
-COMPARE_DIR = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons")
+COMPARE_DIR = os.path.join(OUTPUTS_DIR, "Analyses_Graphiques", "1_Performances_TTME")
 os.makedirs(COMPARE_DIR, exist_ok=True)
 
-FILE_ICOS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ICOS.csv")
+FILE_ICOS = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Resultats_ET_TTME_ICOS.csv")
 ICOS_METEO_DIR = os.path.join(os.path.dirname(OUTPUTS_DIR), "Outputs_ICOS")
 
 LAMBDA_V = 2.45e6  # Chaleur latente de vaporisation (J/kg)

@@ -12,22 +12,22 @@ os.makedirs("Outputs_performances", exist_ok=True)
 # 1. Charger les données
 print("Chargement des donnees ET...")
 try:
-    df_icos = pd.read_csv("Outputs/Resultats_ET_TTME_ICOS.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
-    df_era5 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
+    df_icos = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME_ICOS.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
+    df_era5 = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
 except Exception as e:
     print(f"Erreur lors du chargement des fichiers de base : {e}")
     exit(1)
 
 # B10 est optionnel (peut ne pas couvrir toutes les années)
 try:
-    df_era5_b10 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5_B10.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
+    df_era5_b10 = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5_B10.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
     has_b10 = True
 except Exception:
     df_era5_b10 = pd.DataFrame()
     has_b10 = False
 
 try:
-    df_pure_icos = pd.read_csv("Outputs/Toutes_Comparaisons/Comparaison_ET_Landsat_vs_PureICOS.csv")[['Site', 'Date', 'ET_pure_ICOS (mm/h)']]
+    df_pure_icos = pd.read_csv("Outputs/Resultats_CSV/Comparaison_ET_Landsat_vs_PureICOS.csv")[['Site', 'Date', 'ET_pure_ICOS (mm/h)']]
     has_pure_icos = True
 except Exception:
     df_pure_icos = pd.DataFrame()
@@ -35,7 +35,7 @@ except Exception:
 
     
 try:
-    df_era5_ds = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5_DS.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
+    df_era5_ds = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5_DS.csv")[['Site', 'Date', 'ET_pixel (mm/h)']]
     has_era5_ds = True
 except Exception:
     df_era5_ds = pd.DataFrame()

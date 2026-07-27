@@ -14,8 +14,8 @@ Z_M = 2.0
 Z_H = 2.0
 
 def main():
-    df = pd.read_csv("Outputs/Resultats_ET_TTME.csv")
-    df_era5 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5.csv")
+    df = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME.csv")
+    df_era5 = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5.csv")
     
     et_oseb_list = []
     

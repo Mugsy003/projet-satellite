@@ -7,11 +7,11 @@ from sklearn.metrics import mean_squared_error
 import matplotlib.dates as mdates
 
 OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Outputs")
-CSV_ERA5 = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "Comparaison_ET_ICOS_vs_ERA5.csv")
-CSV_PURE = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons", "Comparaison_ET_Landsat_vs_PureICOS.csv")
-CSV_ERA5_B10 = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5_B10.csv")
-CSV_ERA5_DS = os.path.join(OUTPUTS_DIR, "Resultats_ET_TTME_ERA5_DS.csv")
-OUT_DIR = os.path.join(OUTPUTS_DIR, "Toutes_Comparaisons")
+CSV_ERA5 = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Comparaison_ET_ICOS_vs_ERA5.csv")
+CSV_PURE = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Comparaison_ET_Landsat_vs_PureICOS.csv")
+CSV_ERA5_B10 = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Resultats_ET_TTME_ERA5_B10.csv")
+CSV_ERA5_DS = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Resultats_ET_TTME_ERA5_DS.csv")
+OUT_DIR = os.path.join(OUTPUTS_DIR, "Analyses_Graphiques", "1_Performances_TTME")
 
 os.makedirs(OUT_DIR, exist_ok=True)
 

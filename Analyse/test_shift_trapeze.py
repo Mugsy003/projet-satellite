@@ -7,8 +7,8 @@ from sklearn.metrics import r2_score
 LAMBDA_V = 2.45e6
 
 def main():
-    df = pd.read_csv("Outputs/Resultats_ET_TTME.csv")
-    df_era5 = pd.read_csv("Outputs/Resultats_ET_TTME_ERA5.csv")
+    df = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME.csv")
+    df_era5 = pd.read_csv("Outputs/Resultats_CSV/Resultats_ET_TTME_ERA5.csv")
     
     et_pure_list = []
     lst_pure_list = []

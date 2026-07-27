@@ -1025,7 +1025,7 @@ def main(source='icos', lst_source='dms'):
         df_final = pd.DataFrame(resultats)
         suffix_source = f"_{source.upper()}"
         suffix_lst = f"_{lst_source.upper()}" if lst_source != 'dms' else ""
-        csv_path = os.path.join(OUTPUT_DIR, f"Resultats_ET_TTME{suffix_source}{suffix_lst}.csv")
+        csv_path = os.path.join(OUTPUT_DIR, "Resultats_CSV", f"Resultats_ET_TTME{suffix_source}{suffix_lst}.csv")
         
         if os.path.exists(csv_path):
             df_old = pd.read_csv(csv_path)
