@@ -33,7 +33,6 @@ df.replace("N/A", np.nan, inplace=True)
 cols_num = [
     'ICOS_LST (°C)', 'Temperature_GOL (°C)',
     'LST_Sat_DMS (°C)', 'LST_Sat_TsHARP (°C)',
-    'LST_Sat_DMS_Fusion (°C)', 'LST_Sat_TsHARP_Fusion (°C)',
     'LST_Sat_DL (°C)', 'LST_Sat_Raw_30m (°C)', 'LST_Sat_Raw_100m (°C)'
 ]
 for c in cols_num:
@@ -52,7 +51,7 @@ else:
     exit(1)
 
 # Filtrer : au moins une prédiction ET une vérité terrain
-pred_cols = ['LST_Sat_DMS (°C)', 'LST_Sat_TsHARP (°C)', 'LST_Sat_DMS_Fusion (°C)', 'LST_Sat_TsHARP_Fusion (°C)', 'LST_Sat_DL (°C)', 'LST_Sat_Raw_30m (°C)', 'LST_Sat_Raw_100m (°C)']
+pred_cols = ['LST_Sat_DMS (°C)', 'LST_Sat_TsHARP (°C)', 'LST_Sat_DL (°C)', 'LST_Sat_Raw_30m (°C)', 'LST_Sat_Raw_100m (°C)']
 existing_pred_cols = [c for c in pred_cols if c in df.columns]
 df_valid = df.dropna(subset=['Ground_LST (°C)']).copy()
 df_valid = df_valid[df_valid[existing_pred_cols].notna().any(axis=1)]
@@ -84,8 +83,6 @@ print(f"{len(df_valid)} points de comparaison trouves (ICOS ou GOL).")
 MODELES = {
     'DMS':            {'col': 'LST_Sat_DMS (°C)',            'color': '#1f77b4', 'marker': 'o'},
     'TsHARP':         {'col': 'LST_Sat_TsHARP (°C)',         'color': '#d62728', 'marker': 's'},
-    'DMS_Fusion':     {'col': 'LST_Sat_DMS_Fusion (°C)',     'color': '#ff7f0e', 'marker': '^'},
-    'TsHARP_Fusion':  {'col': 'LST_Sat_TsHARP_Fusion (°C)',  'color': '#2ca02c', 'marker': 'v'},
     'Raw B10 (30m)':  {'col': 'LST_Sat_Raw_30m (°C)',        'color': '#8c564b', 'marker': 'x'},
     'Raw B10 (100m)': {'col': 'LST_Sat_Raw_100m (°C)',       'color': '#e377c2', 'marker': '*'},
 

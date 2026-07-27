@@ -22,17 +22,7 @@ max_depth = 10
 min_samples_leaf = 1
 max_features = 1.0
 
-def load_hyperparams():
-    config_path = "hyperparams_tmp.json"
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r") as f:
-                return json.load(f)
-        except Exception:
-            return None
-    return None
-
-HYPERPARAMS = load_hyperparams()
+# (Optuna et paramètres dynamiques retirés)
 
 def aggregate_3x3(matrice_2d):
     """Regroupe les pixels par blocs de 3x3 et calcule la moyenne.
@@ -137,14 +127,7 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         LOGGER.error("   ❌ Aucun prédicteur trouvé. Annulation.")
         return
 
-    # --- L'ASTUCE SPATIALE DU RANDOM FOREST ---
-    # On crée deux matrices de la taille de l'image contenant les coordonnées X et Y
-    grille_y, grille_x = np.indices((h, w))
-    
-    # On ajoute ces matrices comme si c'étaient de "nouveaux indices satellites"
-    X_dict_30m['Coord_X'] = grille_x
-    X_dict_30m['Coord_Y'] = grille_y
-    # ------------------------------------------
+    # (Astuce spatiale retirée : Coord_X et Coord_Y ne sont plus injectés)
 
     noms_features = list(X_dict_30m.keys())
 
@@ -169,10 +152,8 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
 
     LOGGER.info("   🧹 Sélection des pixels d'entraînement (Seuil de pureté : < 50% de variance)...")
     
-    X_dict_pour_masque = {k: v for k, v in X_dict_30m.items() if k not in ['Coord_X', 'Coord_Y']}
-    
-    # On calcule le masque uniquement sur les variables physiques
-    masque_homogene_1d = calculate_homogeneity_mask(X_dict_pour_masque, threshold=0.50)
+    # On calcule le masque sur les variables physiques
+    masque_homogene_1d = calculate_homogeneity_mask(X_dict_30m, threshold=0.50)
 
     # On combine les deux conditions : Le pixel doit être sans NaN ET homogène
     masque_final_entrainement = masque_valide_90m & masque_homogene_1d
@@ -195,40 +176,15 @@ def process_dms_for_image(nom_site, date_str, dossier_indices):
         X_train_90m, y_train_90m, test_size=0.2, random_state=42
     )
 
-    if HYPERPARAMS is not None:
-        model_type = HYPERPARAMS.get("model_type", "RandomForest")
-        if model_type == "LightGBM":
-            from lightgbm import LGBMRegressor
-            modele = LGBMRegressor(
-                n_estimators=HYPERPARAMS.get("n_estimators", 100),
-                max_depth=HYPERPARAMS.get("max_depth", 10),
-                learning_rate=HYPERPARAMS.get("learning_rate", 0.1),
-                num_leaves=HYPERPARAMS.get("num_leaves", 31),
-                subsample=HYPERPARAMS.get("subsample", 1.0),
-                random_state=42,
-                n_jobs=-1,
-                verbose=-1
-            )
-        else:
-            modele = RandomForestRegressor(
-                n_estimators=HYPERPARAMS.get("n_estimators", 100),
-                max_depth=HYPERPARAMS.get("max_depth", 10),
-                min_samples_split=HYPERPARAMS.get("min_samples_split", 2),
-                min_samples_leaf=HYPERPARAMS.get("min_samples_leaf", 1),
-                max_features=HYPERPARAMS.get("max_features", 1.0),
-                random_state=42, 
-                n_jobs=-1
-            )
-    else:
-        modele = RandomForestRegressor(
-            n_estimators=100, 
-            max_depth=10, 
-            min_samples_split=2,
-            min_samples_leaf=1,
-            max_features=1.0,
-            random_state=42, 
-            n_jobs=-1
-        )
+    modele = RandomForestRegressor(
+        n_estimators=100, 
+        max_depth=10, 
+        min_samples_split=2,
+        min_samples_leaf=1,
+        max_features=1.0,
+        random_state=42, 
+        n_jobs=-1
+    )
 
     modele.fit(X_train, y_train)
 

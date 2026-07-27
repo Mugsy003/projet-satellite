@@ -56,7 +56,6 @@ SITES_PILOTES = {
    # --- Stations NOAA SURFRAD ---
    "Bondville": {"lon": -88.37309, "lat": 40.05192},
    "Goodwin_Creek": {"lon": -89.8729, "lat": 34.25473},
-   
 }
 
 # --- Paramètres TTME (Long & Singh, 2012) ---
@@ -94,7 +93,7 @@ PIDS_NOAA = {
 }
 
 # --- Période de Visualisation (pour visualisation_performances.py) ---
-FILTRER_DATES_VISU = True
+FILTRER_DATES_VISU = False
 DATE_DEBUT_VISU = "2022-01-01"
 DATE_FIN_VISU = "2024-01-01"
 

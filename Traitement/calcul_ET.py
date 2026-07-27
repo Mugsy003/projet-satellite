@@ -1026,6 +1026,13 @@ def main(source='icos', lst_source='dms'):
         suffix_source = f"_{source.upper()}"
         suffix_lst = f"_{lst_source.upper()}" if lst_source != 'dms' else ""
         csv_path = os.path.join(OUTPUT_DIR, f"Resultats_ET_TTME{suffix_source}{suffix_lst}.csv")
+        
+        if os.path.exists(csv_path):
+            df_old = pd.read_csv(csv_path)
+            sites_traites = df_final['Site'].unique()
+            df_old = df_old[~df_old['Site'].isin(sites_traites)]
+            df_final = pd.concat([df_old, df_final], ignore_index=True)
+            
         df_final.to_csv(csv_path, index=False)
         LOGGER.info(f"\n{'='*60}")
         LOGGER.info(f"💾 Résultats sauvegardés : {csv_path}")

@@ -128,16 +128,19 @@ def main():
         # -------------------------------------------------------------
         
         valid_era5 = df_site.dropna(subset=[var_et_era5])
-        ax2.plot(valid_era5['Date'], valid_era5[var_et_era5], marker='s', linestyle='-', color='dodgerblue', label='ERA5 brute', linewidth=1.5, alpha=0.9)
+        ax2.plot(valid_era5['Date'], valid_era5[var_et_era5], marker='s', linestyle='-', color='dodgerblue', label='ERA5 brute (LST DMS)', linewidth=1.5, alpha=0.9)
         
         if has_pure:
             valid_pure = df_site.dropna(subset=[var_et_pure])
             ax2.plot(valid_pure['Date'], valid_pure[var_et_pure], marker='D', linestyle='--', color='purple', label='Pure ICOS (in-situ)', linewidth=2, alpha=0.9)
             
-
         if has_ds:
             valid_ds = df_site.dropna(subset=[var_et_ds])
-            ax2.plot(valid_ds['Date'], valid_ds[var_et_ds], marker='v', linestyle='-', color='darkorange', label='ERA5 DS', linewidth=2, alpha=1.0)
+            ax2.plot(valid_ds['Date'], valid_ds[var_et_ds], marker='v', linestyle='-', color='darkorange', label='ERA5 DS (LST DMS)', linewidth=2, alpha=1.0)
+            
+        if has_b10:
+            valid_b10 = df_site.dropna(subset=[var_et_b10])
+            ax2.plot(valid_b10['Date'], valid_b10[var_et_b10], marker='o', linestyle='-', color='forestgreen', label='ERA5 brute (LST B10)', linewidth=1.5, alpha=0.9)
             
         ax2.set_xlabel("Date", fontsize=11)
         ax2.set_ylabel("Évapotranspiration (mm/h)", fontsize=11)
