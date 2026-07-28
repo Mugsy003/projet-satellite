@@ -16,8 +16,8 @@ from pyproj import Transformer
 sys.stdout.reconfigure(encoding='utf-8')
 
 from config import LOGGER, SITES_PILOTES, OUTPUT_DIR
-from Traitement.calcul_ET_PT_SINRH import calculate_pt_sinrh_et
-from Traitement.calcul_ET import load_meteo
+from Traitement.PT_SINRH.algorithme_PT_SINRH import calculate_pt_sinrh_et
+from Traitement.TTME.run_TTME import load_meteo
 
 LAMBDA_V = 2.45e6
 

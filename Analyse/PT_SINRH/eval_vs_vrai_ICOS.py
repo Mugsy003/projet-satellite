@@ -8,7 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from config import OUTPUT_DIR
 
 COMPARE_DIR = os.path.join(OUTPUT_DIR, "Analyses_Graphiques", "2_Performances_PT_SINRH")

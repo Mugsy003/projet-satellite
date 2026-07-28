@@ -62,6 +62,7 @@ valeurs_temperatures_*.csv
 scratch_columns.txt
 restructure.ps1
 scratch/
+Logs
 # Fichiers de configuration temporaire et bases de données locales (Optuna)
 optuna_study.db
 hyperparams_tmp.json

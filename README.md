@@ -36,13 +36,24 @@ projet-satellite/
 ├── config.py                         # Fichier de configuration central
 ├── main.py                           # Orchestrateur global
 ├── Traitement/                       # Modèles physiques et Optimisation
-│   ├── calcul_ET.py                  # 💧 Modélisation de l'Évapotranspiration (TTME)
+│   ├── TTME/                         # 💧 Modélisation de l'Évapotranspiration (TTME)
+│   │   └── run_TTME.py               
+│   ├── PT_SINRH/                     # 💧 Modélisation de l'Évapotranspiration (PT-SINRH)
+│   │   ├── run_PT_SINRH.py           
+│   │   └── algorithme_PT_SINRH.py    
+│   ├── downscaling_Ta.py             # Downscaling de la température de l'air (ERA5)
 │   └── optimisation_pipeline.py      # Tuning des hyperparamètres via Optuna
 │
 ├── Analyse/                          # Scripts de statistiques et études annexes
-│   ├── comparaison_ICOS.py           # Validation des pixels LST avec les stations
-│   └── Visualisations/               # Création des graphiques finaux
-│       └── visualisation_performances.py
+│   ├── TTME/                         # Évaluation et graphiques pour TTME
+│   │   ├── eval_modele_vs_modele.py
+│   │   ├── eval_vs_vrai_ICOS.py
+│   │   └── generer_cartes_spatiales.py
+│   ├── PT_SINRH/                     # Évaluation et graphiques pour PT-SINRH
+│   │   ├── eval_modele_vs_modele.py
+│   │   ├── eval_vs_vrai_ICOS.py
+│   │   └── generer_graphes.py
+│   └── comparaison_ICOS.py           # Validation des pixels LST avec les stations
 │
 ├── Extraction/                       # Recherche STAC et Manifestes
 │   ├── Landsat/
@@ -82,28 +93,29 @@ python Traitement/optimisation_pipeline.py
 
 ## 💧 Modélisation de l'Évapotranspiration (ET)
 
-Le projet inclut désormais un moteur de modélisation de l'Évapotranspiration à l'échelle du pixel, via l'algorithme **TTME** (Two-source Trapezoid Model for Evapotranspiration).
+Le projet inclut désormais deux moteurs de modélisation de l'Évapotranspiration à l'échelle du pixel :
+1. **TTME (Two-source Trapezoid Model for Evapotranspiration)** : Sépare l'évaporation du sol et la transpiration des plantes via un espace théorique LST-NDVI thermodynamique.
+2. **PT-SINRH** : Modèle basé sur Priestley-Taylor et des contraintes éco-physiologiques (humidité, rayonnement, phénologie).
 
-Ce modèle sépare l'évaporation du sol (Soil) de la transpiration des plantes (Canopy) en construisant un espace théorique LST-NDVI (Trapèze) contraint par la thermodynamique (Conservation de l'énergie de rayonnement $R_n$).
+### Comment lancer les calculs ?
+Vous pouvez calculer l'ET en utilisant la météo spatiale (ERA5), la météo in-situ (ICOS), ou la météo downscalée (ERA5_DS) :
 
-### Comment lancer le calcul de l'ET ?
-Vous pouvez calculer l'ET en utilisant soit les données météo parfaites du sol (ICOS), soit les données météo spatiales (ERA5) :
 ```bash
-# Calcul avec la météo In-Situ
-python Traitement/calcul_ET.py --source icos
+# Pour TTME (ex: avec ERA5)
+python -m Traitement.TTME.run_TTME --source era5
 
-# Calcul avec la météo globale Copernicus (ERA5)
-python Traitement/calcul_ET.py --source era5
+# Pour PT-SINRH (ex: avec ERA5 Downscalé)
+python -m Traitement.PT_SINRH.run_PT_SINRH --source era5_ds
 ```
-Les scripts dans le dossier `Analyse/` (comme `generer_graphes_par_site.py`) permettent ensuite de générer des séries temporelles croisant les résultats satellitaires avec les "Ground Truth" des tours à flux.
+
+Les scripts d'analyse (dans `Analyse/TTME/` et `Analyse/PT_SINRH/`) génèrent ensuite les performances statistiques (RMSE, Biais) et les courbes temporelles contre les données absolues (Chaleur Latente) mesurées par les tours à flux.
 
 ---
 
 ## 📊 Outputs Générés
 
 Tous les résultats sont générés dans le dossier `Outputs/` :
-- `Outputs/Validation_Saisonniere_LST.csv` : Bilan global croisant la LST satellite et le terrain.
-- `Outputs/Resultats_ET_TTME.csv` : Résultats des calculs d'Évapotranspiration (Flux de chaleur, ET mm/h).
-- `Outputs_performances/` : Graphiques finaux d'erreur LST (RMSE, MAE, Boxplots).
-- `Outputs/comparaisons ET/` : Graphiques de suivi temporel de l'Évapotranspiration par site.
-- `Outputs/Serie_Temporelle_{Site}_[Mission]/` : Les images TIF générées (LST, NDVI, ET_map...).
+- `Outputs/Resultats_CSV/` : Tableaux statistiques croisés (LST satellite vs terrain, ET modélisée vs ICOS).
+- `Outputs/Analyses_Graphiques/` : Graphiques finaux d'erreur LST et courbes temporelles d'ET.
+- `Outputs/Outputs_ICOS/` : Extractions des données de chaleur latente des tours à flux.
+- `Outputs/Serie_Temporelle_{Site}/` : Les images TIF générées (LST, NDVI, SAVI, ET...).
