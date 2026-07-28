@@ -91,35 +91,32 @@ def main():
             bias = np.mean(valid_ds['ET_ERA5_DS (mm/h)'] - valid_ds['ET_Vrai_ICOS (mm/h)'])
             r2_ds, rmse_ds, bias_ds = f"{r**2:.3f}", f"{rmse:.3f}", f"{bias:.3f}"
             
-        fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={'height_ratios': [3, 1]})
         
-        # Table
-        ax1 = axes[0]
-        ax1.axis('tight'); ax1.axis('off')
+        # Plot temporel (En haut)
+        ax1.plot(df_site['Date_obj'], df_site['ET_Vrai_ICOS (mm/h)'], marker='D', linestyle='--', color='purple', label='Vrai ICOS (Réf.)', lw=2)
+        ax1.plot(valid_era5['Date_obj'], valid_era5['ET_ERA5 (mm/h)'], marker='s', linestyle='-', color='dodgerblue', label='PT-SINRH ERA5', lw=1.5)
+        if not valid_ds.empty:
+            ax1.plot(valid_ds['Date_obj'], valid_ds['ET_ERA5_DS (mm/h)'], marker='^', linestyle='-', color='darkorange', label='PT-SINRH ERA5-DS', lw=1.5)
+            
+        ax1.set_xlabel("Date")
+        ax1.set_ylabel("Évapotranspiration (mm/h)")
+        ax1.set_title("Évolution Temporelle")
+        ax1.grid(True, linestyle=':', alpha=0.6)
+        ax1.legend()
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha="right")
+        
+        # Table (En bas)
+        ax2.axis('tight'); ax2.axis('off')
         cellText = [
             ["ERA5", f"{r_era5**2:.3f}", f"{rmse_era5:.3f}", f"{bias_era5:.3f}"],
             ["ERA5_DS", r2_ds, rmse_ds, bias_ds]
         ]
-        table = ax1.table(cellText=cellText, colLabels=["Modèle", "r²", "RMSE (mm/h)", "Biais (mm/h)"], loc='center')
-        table.scale(1, 2); table.set_fontsize(11)
+        table = ax2.table(cellText=cellText, colLabels=["Modèle", "r²", "RMSE (mm/h)", "Biais (mm/h)"], loc='center')
+        table.scale(1, 1.5); table.set_fontsize(11)
         for (r_idx, c_idx), cell in table.get_celld().items():
             if r_idx == 0: cell.set_text_props(weight='bold', color='white'); cell.set_facecolor('#d9534f')
-        ax1.set_title("PT-SINRH vs VRAI ICOS (Tour à flux)", fontsize=13, weight='bold', pad=20)
-        
-        # Plot temporel
-        ax2 = axes[1]
-        ax2.plot(df_site['Date_obj'], df_site['ET_Vrai_ICOS (mm/h)'], marker='D', linestyle='--', color='purple', label='Vrai ICOS (Réf.)', lw=2)
-        ax2.plot(valid_era5['Date_obj'], valid_era5['ET_ERA5 (mm/h)'], marker='s', linestyle='-', color='dodgerblue', label='PT-SINRH ERA5', lw=1.5)
-        if not valid_ds.empty:
-            ax2.plot(valid_ds['Date_obj'], valid_ds['ET_ERA5_DS (mm/h)'], marker='^', linestyle='-', color='darkorange', label='PT-SINRH ERA5-DS', lw=1.5)
-            
-        ax2.set_xlabel("Date")
-        ax2.set_ylabel("Évapotranspiration (mm/h)")
-        ax2.set_title("Évolution Temporelle")
-        ax2.grid(True, linestyle=':', alpha=0.6)
-        ax2.legend()
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha="right")
         
         plt.suptitle(f"Vérité Terrain absolue (LE) — Site : {site}", fontsize=16, weight='bold')
         plt.tight_layout()

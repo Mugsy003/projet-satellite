@@ -1,205 +1,178 @@
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-import pandas as pd
 import numpy as np
+import pandas as pd
+import matplotlib
+import matplotlib.dates as mdates
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error
 
-# Configuration des chemins
-OUTPUTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Outputs")
-COMPARE_DIR = os.path.join(OUTPUTS_DIR, "Analyses_Graphiques", "1_Performances_TTME")
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from config import OUTPUT_DIR
+
+COMPARE_DIR = os.path.join(OUTPUT_DIR, "Analyses_Graphiques", "1_Performances_TTME")
 os.makedirs(COMPARE_DIR, exist_ok=True)
+LAMBDA_V = 2.45e6
 
-FILE_ICOS = os.path.join(OUTPUTS_DIR, "Resultats_CSV", "Resultats_ET_TTME_ICOS.csv")
-ICOS_METEO_DIR = os.path.join(os.path.dirname(OUTPUTS_DIR), "Outputs_ICOS")
-
-LAMBDA_V = 2.45e6  # Chaleur latente de vaporisation (J/kg)
+def get_icos_le(site, date_str):
+    path = os.path.join(os.path.dirname(OUTPUT_DIR), "Outputs_ICOS", f"donnees_icos_LE_{site}.csv")
+    if not os.path.exists(path):
+        return np.nan
+    df = pd.read_csv(path, index_col='TIMESTAMP', parse_dates=True)
+    if 'LE_Consolide' not in df.columns:
+        return np.nan
+        
+    # On cherche l'heure de passage autour de 10:30 UTC
+    target_dt = pd.to_datetime(f"{date_str} 10:30:00")
+    start = target_dt - pd.Timedelta(minutes=30)
+    end = target_dt + pd.Timedelta(minutes=30)
+    
+    sub = df.loc[start:end]
+    if sub.empty:
+        return np.nan
+        
+    return sub['LE_Consolide'].mean()
 
 def main():
-    print("=" * 60)
-    print("   COMPARAISON ET : Landsat LST vs ICOS LST (Pure ICOS)")
-    print("=" * 60)
+    print("\n--- COMPARAISON TTME vs VRAI ICOS (LE) ---")
     
-    if not os.path.exists(FILE_ICOS):
-        print(f"❌ Fichier introuvable : {FILE_ICOS}")
+    path_era5 = os.path.join(OUTPUT_DIR, "Resultats_CSV", "Resultats_ET_TTME_ERA5.csv")
+    path_ds = os.path.join(OUTPUT_DIR, "Resultats_CSV", "Resultats_ET_TTME_ERA5_DS.csv")
+    
+    if not os.path.exists(path_era5):
+        print(f"Erreur Fichier manquant: {path_era5}")
         return
-        
-    df = pd.read_csv(FILE_ICOS)
-    
-    # Filter out Gebesee 2023 data as station values are wrong
-    mask_gebesee_2023 = (df['Site'] == 'Gebesee') & (df['Date'].str.startswith('2023'))
-    df = df[~mask_gebesee_2023]
-    
-    print(f"✅ Fichier de base chargé : {len(df)} lignes.")
-    
-    # On va calculer la LST ICOS et l'ET ICOS Pure
-    lst_icos_list = []
-    et_pure_list = []
-    le_pure_list = []
-    
-    for idx, row in df.iterrows():
-        site = row['Site']
-        date_str = row['Date']
-        
-        # 1. Trouver l'heure réelle de passage du satellite dans le dossier TIF
-        tif_folder = os.path.join(OUTPUTS_DIR, f"Serie_Temporelle_{site}", "3_Indices", "TIF_Data")
-        target_dt = pd.to_datetime(f"{date_str} 10:30:00") # Par défaut si non trouvé
-        
-        if os.path.exists(tif_folder):
-            import glob
-            import re
-            tifs = glob.glob(os.path.join(tif_folder, f"{date_str}_*_{site}_NDVI.tif"))
-            if tifs:
-                basename = os.path.basename(tifs[0])
-                match = re.search(r"(\d{4}-\d{2}-\d{2})_(\d{2})h(\d{2})", basename)
-                if match:
-                    date_part, hour, minute = match.groups()
-                    target_dt = pd.to_datetime(f"{date_part} {hour}:{minute}:00")
 
-        # 2. Trouver LST_ground dans les fichiers météo ICOS
-        meteo_path = os.path.join(ICOS_METEO_DIR, f"donnees_icos_{site}.csv")
-        
-        lst_ground = np.nan
-        if os.path.exists(meteo_path):
-            df_meteo = pd.read_csv(meteo_path)
-            df_meteo['TIMESTAMP'] = pd.to_datetime(df_meteo['TIMESTAMP'])
-            diff = abs(df_meteo['TIMESTAMP'] - target_dt)
-            mask = diff <= pd.Timedelta(minutes=60)
-            if not df_meteo[mask].empty:
-                idx_best = diff[mask].idxmin()
-                lst_ground = df_meteo.loc[idx_best, 'LST_Calculee']
-                
-        lst_icos_list.append(lst_ground)
-        
-        # 2. Recalculer l'ET avec le modèle TTME en utilisant LST_ground à la place de lst_pixel
-        if pd.isna(lst_ground) or pd.isna(row['fc_pixel']) or pd.isna(row['T_s_max (°C)']):
-            et_pure_list.append(np.nan)
-            le_pure_list.append(np.nan)
-            continue
-            
-        fc = row['fc_pixel']
-        Ta = row['Ta (°C)']
-        Rn = row['Rn (W/m²)']
-        Ts_max = row['T_s_max (°C)']
-        Tc_max = row['T_c_max (°C)']
-        
-        # Paramètres géométriques du trapèze
-        beta_w = Tc_max - Ts_max
-        a = lst_ground - Ta
-        T_warm_at_fc = Ts_max + beta_w * fc
-        a_plus_b = T_warm_at_fc - Ta
-        if a_plus_b > 0.1:
-            ratio = np.clip(a / a_plus_b, 0.0, 1.0)
-        else:
-            ratio = np.nan
-        beta_i = ratio * beta_w
-        
-        # Décomposition de LST
-        Ts = lst_ground - beta_i * fc
-        Tc = Ts + beta_i
-        
-        # Contraintes physiques
-        Ts = max(Ts, Ta - 5)
-        Tc = max(Tc, Ta - 5)
-        
-        # Flux de chaleur dans le sol
-        cg_s = 0.315 if fc < 0.5 else 0.35
-        cg_c = 0.05
-        
-        # L'énergie disponible pour chaque pôle pur
-        G_pur_sol = cg_s * Rn
-        G_pur_canopee = cg_c * Rn
-        
-        Rn_s_dispo = Rn - G_pur_sol
-        Rn_c_dispo = Rn - G_pur_canopee
-        
-        # Calcul de la Chaleur Latente par interpolation linéaire
-        if Ts_max > Ta:
-            LE_s = Rn_s_dispo * (Ts_max - Ts) / (Ts_max - Ta)
-        else:
-            LE_s = 0.0
-            
-        if Tc_max > Ta:
-            LE_c = Rn_c_dispo * (Tc_max - Tc) / (Tc_max - Ta)
-        else:
-            LE_c = 0.0
-            
-        # LE Total : mosaïque
-        LE = fc * LE_c + (1 - fc) * LE_s
-        energie_dispo = Rn - (fc * G_pur_canopee + (1 - fc) * G_pur_sol)
-        
-        LE = np.clip(LE, 0.0, energie_dispo)
-        
-        # ET en mm/h
-        ET = LE * 3600.0 / LAMBDA_V
-        
-        et_pure_list.append(ET)
-        le_pure_list.append(LE)
-        
-    df['LST_ICOS (°C)'] = lst_icos_list
-    df['LE_pure_ICOS (W/m²)'] = le_pure_list
-    df['ET_pure_ICOS (mm/h)'] = et_pure_list
+    df_era5 = pd.read_csv(path_era5).rename(columns={'ET_pixel (mm/h)': 'ET_ERA5 (mm/h)'})
     
-    # Nettoyage pour la comparaison
-    df_valid = df.dropna(subset=['ET_pixel (mm/h)', 'ET_pure_ICOS (mm/h)'])
-    print(f"🔄 Comparaison possible sur {len(df_valid)} points.")
+    if os.path.exists(path_ds):
+        df_ds = pd.read_csv(path_ds).rename(columns={'ET_pixel (mm/h)': 'ET_ERA5_DS (mm/h)'})
+        df_era5 = pd.merge(df_era5, df_ds[['Site', 'Date', 'ET_ERA5_DS (mm/h)']], on=['Site', 'Date'], how='left')
+    else:
+        df_era5['ET_ERA5_DS (mm/h)'] = np.nan
+        
+    print("Extraction du LE ICOS pour chaque date...")
     
-    if len(df_valid) == 0:
-        print("⚠️ Aucune donnée valide trouvée.")
+    # Récupérer LE
+    df_era5['LE_ICOS (W/m2)'] = df_era5.apply(lambda row: get_icos_le(row['Site'], row['Date']), axis=1)
+    df_era5['ET_Vrai_ICOS (mm/h)'] = df_era5['LE_ICOS (W/m2)'] * 3600.0 / LAMBDA_V
+    
+    # Sauvegarde CSV des résultats de comparaison
+    df_era5.to_csv(os.path.join(OUTPUT_DIR, "Resultats_CSV", "Resultats_Comparaison_TTME_Vrai_ICOS.csv"), index=False)
+    
+    # Nettoyage pour les graphes
+    df_valid = df_era5.dropna(subset=['ET_Vrai_ICOS (mm/h)']).copy()
+    if df_valid.empty:
+        print("Erreur: Aucune donnee valide en commun.")
         return
         
-    # Statistiques ET
-    et_landsat = df_valid['ET_pixel (mm/h)']
-    et_pure = df_valid['ET_pure_ICOS (mm/h)']
+    print(f"{len(df_valid)} points de comparaison trouves.")
     
-    lst_landsat = df_valid['LST_pixel (°C)']
-    lst_pure = df_valid['LST_ICOS (°C)']
+    site_metrics = []
     
-    bias_lst = np.mean(lst_pure - lst_landsat)
-    
-    rmse = np.sqrt(mean_squared_error(et_landsat, et_pure))
-    bias = np.mean(et_pure - et_landsat)
-    r2 = r2_score(et_landsat, et_pure)
-    
-    print("-" * 40)
-    print("MÉTRIQUES (Pure ICOS vs Landsat-ICOS)")
-    print("-" * 40)
-    print(f"Biais LST = {bias_lst:.2f} °C")
-    print(f"RMSE = {rmse:.4f} mm/h")
-    print(f"Biais= {bias:.4f} mm/h")
-    print(f"R²   = {r2:.4f}")
-    
-    # Sauvegarde CSV
-    out_csv = os.path.join(COMPARE_DIR, "Comparaison_ET_Landsat_vs_PureICOS.csv")
-    df_valid.to_csv(out_csv, index=False)
-    
-    # Graphique
-    fig, ax = plt.subplots(figsize=(8, 7))
-    ax.scatter(et_landsat, et_pure, color='purple', alpha=0.7)
-    
-    min_val = min(et_landsat.min(), et_pure.min())
-    max_val = max(et_landsat.max(), et_pure.max())
-    margin = (max_val - min_val) * 0.1 if max_val != min_val else 0.1
-    ax.plot([min_val - margin, max_val + margin], [min_val - margin, max_val + margin], 'r--', label='1:1')
-    
-    ax.set_title("Comparaison ET : LST Landsat vs LST ICOS In-Situ", fontsize=14)
-    ax.set_xlabel("ET avec LST Landsat (mm/h)", fontsize=12)
-    ax.set_ylabel("ET avec LST In-Situ (Pure ICOS) (mm/h)", fontsize=12)
-    ax.grid(True, linestyle=':', alpha=0.6)
-    
-    textstr = f"N = {len(df_valid)}\nR² = {r2:.2f}\nRMSE = {rmse:.3f}\nBiais = {bias:.3f}"
-    ax.text(0.05, 0.95, textstr, transform=ax.transAxes, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8), fontsize=11)
+    # Graphiques par site
+    for site in sorted(df_valid['Site'].unique()):
+        df_site = df_valid[df_valid['Site'] == site].sort_values('Date')
+        df_site['Date_obj'] = pd.to_datetime(df_site['Date'])
+        
+        valid_era5 = df_site.dropna(subset=['ET_ERA5 (mm/h)', 'ET_Vrai_ICOS (mm/h)'])
+        valid_ds = df_site.dropna(subset=['ET_ERA5_DS (mm/h)', 'ET_Vrai_ICOS (mm/h)'])
+        
+        if valid_era5.empty: continue
             
-    out_png = os.path.join(COMPARE_DIR, "Scatter_ET_Landsat_vs_PureICOS.png")
-    plt.savefig(out_png, dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    print(f"\n📈 Graphique sauvegardé : {out_png}")
+        r_era5 = np.corrcoef(valid_era5['ET_Vrai_ICOS (mm/h)'], valid_era5['ET_ERA5 (mm/h)'])[0, 1]
+        rmse_era5 = np.sqrt(mean_squared_error(valid_era5['ET_Vrai_ICOS (mm/h)'], valid_era5['ET_ERA5 (mm/h)']))
+        bias_era5 = np.mean(valid_era5['ET_ERA5 (mm/h)'] - valid_era5['ET_Vrai_ICOS (mm/h)'])
+        
+        r2_ds, rmse_ds, bias_ds = "N/A", "N/A", "N/A"
+        if len(valid_ds) > 2:
+            r = np.corrcoef(valid_ds['ET_Vrai_ICOS (mm/h)'], valid_ds['ET_ERA5_DS (mm/h)'])[0, 1]
+            rmse = np.sqrt(mean_squared_error(valid_ds['ET_Vrai_ICOS (mm/h)'], valid_ds['ET_ERA5_DS (mm/h)']))
+            bias = np.mean(valid_ds['ET_ERA5_DS (mm/h)'] - valid_ds['ET_Vrai_ICOS (mm/h)'])
+            r2_ds, rmse_ds, bias_ds = f"{r**2:.3f}", f"{rmse:.3f}", f"{bias:.3f}"
+            
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={'height_ratios': [3, 1]})
+        
+        # Plot temporel (En haut)
+        ax1.plot(df_site['Date_obj'], df_site['ET_Vrai_ICOS (mm/h)'], marker='D', linestyle='--', color='purple', label='Vrai ICOS (Réf.)', lw=2)
+        ax1.plot(valid_era5['Date_obj'], valid_era5['ET_ERA5 (mm/h)'], marker='s', linestyle='-', color='dodgerblue', label='TTME ERA5', lw=1.5)
+        if not valid_ds.empty:
+            ax1.plot(valid_ds['Date_obj'], valid_ds['ET_ERA5_DS (mm/h)'], marker='^', linestyle='-', color='darkorange', label='TTME ERA5-DS', lw=1.5)
+            
+        ax1.set_xlabel("Date")
+        ax1.set_ylabel("Évapotranspiration (mm/h)")
+        ax1.set_title("Évolution Temporelle")
+        ax1.grid(True, linestyle=':', alpha=0.6)
+        ax1.legend()
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha="right")
+        
+        # Table (En bas)
+        ax2.axis('tight'); ax2.axis('off')
+        cellText = [
+            ["ERA5", f"{r_era5**2:.3f}", f"{rmse_era5:.3f}", f"{bias_era5:.3f}"],
+            ["ERA5_DS", r2_ds, rmse_ds, bias_ds]
+        ]
+        table = ax2.table(cellText=cellText, colLabels=["Modèle", "r²", "RMSE (mm/h)", "Biais (mm/h)"], loc='center')
+        table.scale(1, 1.5); table.set_fontsize(11)
+        for (r_idx, c_idx), cell in table.get_celld().items():
+            if r_idx == 0: cell.set_text_props(weight='bold', color='white'); cell.set_facecolor('#d9534f')
+        
+        plt.suptitle(f"Vérité Terrain absolue (LE) — Site : {site}", fontsize=16, weight='bold')
+        plt.tight_layout()
+        plt.savefig(os.path.join(COMPARE_DIR, f"Comparaison_Vrai_ICOS_{site}.png"), dpi=150)
+        plt.close()
+        
+        site_metrics.append({
+            'Site': site,
+            'RMSE': rmse_era5,
+            'r2': r_era5**2
+        })
+        
+    if site_metrics:
+        # Bar chart
+        df_m = pd.DataFrame(site_metrics)
+        fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+        sites_sorted = sorted(df_m['Site'].unique())
+        x = np.arange(len(sites_sorted))
+        width = 0.5
+        for ax, metric in zip(axes, ['RMSE', 'r2']):
+            vals = [df_m[df_m['Site'] == s][metric].values[0] if len(df_m[df_m['Site'] == s]) > 0 else 0 for s in sites_sorted]
+            bars = ax.bar(x, vals, width, color='dodgerblue', alpha=0.85)
+            for bar, val in zip(bars, vals):
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005, f"{val:.3f}", ha='center', fontsize=9)
+            ax.set_xticks(x); ax.set_xticklabels(sites_sorted, rotation=45, ha='right')
+            ax.set_ylabel(metric)
+            ax.set_title(f"{metric} par site (vs Vrai ICOS)", fontsize=13, weight='bold')
+            ax.grid(True, axis='y', linestyle=':', alpha=0.5)
+        plt.suptitle("TTME ERA5 : Performances par site (vs Vrai ICOS)", fontsize=15, weight='bold')
+        plt.tight_layout()
+        plt.savefig(os.path.join(COMPARE_DIR, "Performances_TTME_Vrai_ICOS_par_Site.png"), dpi=150)
+        plt.close()
+
+        # Scatter plot global
+        fig, ax = plt.subplots(figsize=(8, 8))
+        
+        valid_era5_glob = df_valid.dropna(subset=['ET_ERA5 (mm/h)', 'ET_Vrai_ICOS (mm/h)'])
+        ax.scatter(valid_era5_glob['ET_Vrai_ICOS (mm/h)'], valid_era5_glob['ET_ERA5 (mm/h)'], alpha=0.6, color='dodgerblue', label='ERA5')
+        
+        valid_ds_glob = df_valid.dropna(subset=['ET_ERA5_DS (mm/h)', 'ET_Vrai_ICOS (mm/h)'])
+        if not valid_ds_glob.empty:
+            ax.scatter(valid_ds_glob['ET_Vrai_ICOS (mm/h)'], valid_ds_glob['ET_ERA5_DS (mm/h)'], alpha=0.6, color='darkorange', marker='^', label='ERA5_DS')
+            
+        max_val = max(valid_era5_glob['ET_Vrai_ICOS (mm/h)'].max(), valid_era5_glob['ET_ERA5 (mm/h)'].max())
+        ax.plot([0, max_val], [0, max_val], 'r--', label='1:1')
+        ax.set_xlabel('ET Vrai ICOS (mm/h)')
+        ax.set_ylabel('ET Modele TTME (mm/h)')
+        ax.set_title('Scatter Plot: TTME vs Verite Terrain (Tous sites confondus)')
+        ax.legend()
+        ax.grid(True, linestyle=':', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(os.path.join(COMPARE_DIR, "Scatter_TTME_vs_Vrai_ICOS.png"), dpi=150)
+        plt.close()
+        
+    print("\nAnalyse terminee. Les graphiques sont disponibles dans Outputs/Analyses_Graphiques/1_Performances_TTME.")
 
 if __name__ == "__main__":
-    import sys
-    if sys.platform.startswith('win'):
-        sys.stdout.reconfigure(encoding='utf-8')
     main()
