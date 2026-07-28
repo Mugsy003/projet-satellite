@@ -126,6 +126,54 @@ def main():
         plt.savefig(os.path.join(COMPARE_DIR, f"Comparaison_Vrai_ICOS_{site}.png"), dpi=150)
         plt.close()
         
+        site_metrics.append({
+            'Site': site,
+            'RMSE': rmse_era5,
+            'r2': r_era5**2
+        })
+        
+    if site_metrics:
+        # Bar chart
+        df_m = pd.DataFrame(site_metrics)
+        fig, axes = plt.subplots(1, 2, figsize=(18, 6))
+        sites_sorted = sorted(df_m['Site'].unique())
+        x = np.arange(len(sites_sorted))
+        width = 0.5
+        for ax, metric in zip(axes, ['RMSE', 'r2']):
+            vals = [df_m[df_m['Site'] == s][metric].values[0] if len(df_m[df_m['Site'] == s]) > 0 else 0 for s in sites_sorted]
+            bars = ax.bar(x, vals, width, color='dodgerblue', alpha=0.85)
+            for bar, val in zip(bars, vals):
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005, f"{val:.3f}", ha='center', fontsize=9)
+            ax.set_xticks(x); ax.set_xticklabels(sites_sorted, rotation=45, ha='right')
+            ax.set_ylabel(metric)
+            ax.set_title(f"{metric} par site (vs Vrai ICOS)", fontsize=13, weight='bold')
+            ax.grid(True, axis='y', linestyle=':', alpha=0.5)
+        plt.suptitle("PT-SINRH ERA5 : Performances par site (vs Vrai ICOS)", fontsize=15, weight='bold')
+        plt.tight_layout()
+        plt.savefig(os.path.join(COMPARE_DIR, "Performances_PT_SINRH_Vrai_ICOS_par_Site.png"), dpi=150)
+        plt.close()
+
+        # Scatter plot global
+        fig, ax = plt.subplots(figsize=(8, 8))
+        
+        valid_era5_glob = df_valid.dropna(subset=['ET_ERA5 (mm/h)', 'ET_Vrai_ICOS (mm/h)'])
+        ax.scatter(valid_era5_glob['ET_Vrai_ICOS (mm/h)'], valid_era5_glob['ET_ERA5 (mm/h)'], alpha=0.6, color='dodgerblue', label='ERA5')
+        
+        valid_ds_glob = df_valid.dropna(subset=['ET_ERA5_DS (mm/h)', 'ET_Vrai_ICOS (mm/h)'])
+        if not valid_ds_glob.empty:
+            ax.scatter(valid_ds_glob['ET_Vrai_ICOS (mm/h)'], valid_ds_glob['ET_ERA5_DS (mm/h)'], alpha=0.6, color='darkorange', marker='^', label='ERA5_DS')
+            
+        max_val = max(valid_era5_glob['ET_Vrai_ICOS (mm/h)'].max(), valid_era5_glob['ET_ERA5 (mm/h)'].max())
+        ax.plot([0, max_val], [0, max_val], 'r--', label='1:1')
+        ax.set_xlabel('ET Vrai ICOS (mm/h)')
+        ax.set_ylabel('ET Modele PT-SINRH (mm/h)')
+        ax.set_title('Scatter Plot: Modele vs Verite Terrain (Tous sites confondus)')
+        ax.legend()
+        ax.grid(True, linestyle=':', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(os.path.join(COMPARE_DIR, "Scatter_PT_SINRH_vs_Vrai_ICOS.png"), dpi=150)
+        plt.close()
+        
     print("\nAnalyse terminee. Les graphiques sont disponibles dans Outputs/Analyses_Graphiques/2_Performances_PT_SINRH.")
 
 if __name__ == "__main__":
