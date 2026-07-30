@@ -24,13 +24,13 @@ for directory in [OUTPUT_DIR, PREVIEWS_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # --- Constantes du Projet ---
-TIME_OF_INTEREST = "2021-01-01/2025-01-01"
+TIME_OF_INTEREST = "2024-01-01/2025-12-31"
 
 BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16", "swir22"]
 BANDS_OF_INTEREST_S2 = ["B02", "B03", "B04", "B08", "B11", "SCL"]
 TIME_MARGIN_MINUTES = 60
 lt = 99
-ltd = 99  # Seuil augmenté pour ne pas rater d'images claires localement
+ltd = 30  # Max 30% de nuages demandé par l'utilisateur
 radius_km = 3
 radius_km_s3 = 25  # Rayon élargi pour S3 
 nb_images = 500
@@ -41,7 +41,7 @@ couverture_parfaite = 95
 
 # Si True, l'extraction Landsat ignorera les images dont les dates sont déjà 
 # listées dans Outputs/manifest_dates_existantes.json pour aller en chercher de nouvelles.
-ignorer_existants = False
+ignorer_existants = True
 
 SITES_PILOTES = { 
    "Gebesee": {"lon": 10.914411, "lat": 51.100012},
@@ -111,22 +111,27 @@ DATE_FIN_VISU = "2024-01-01"
 
 # --- Pipeline : étapes à exécuter via main.py ---
 PIPELINE_STEPS = {
-    "extraction_landsat": True,
+    "extraction_landsat": False,
     "extraction_ecostress": False,
-    "extraction_sentinel": False,
+    "extraction_sentinel": True,
     "extraction_sentinel3": False,
     "extraction_paires_eco_s2": False,
     "extraction_paires_s3_s2": False,
-    "transform_landsat": True,
+    "transform_landsat": False,
     "transform_ecostress": False,
-    "transform_sentinel": False,
+    "transform_sentinel": True,
     "transform_sentinel3": False,
-    "sharpening_dms_landsat": True,
+    "sharpening_dms_landsat": False,
     "sharpening_tsharp_landsat": False,
     "sharpening_dms_sentinel3": False,
     "fusion_dms": False,
     "fusion_tsharp": False,
     "fusion_dms_s3_s2": False,
-    "comparaison_icos": True,
-    "visualisation": True,
+    "comparaison_icos": False,
+    "visualisation": False,
+    "train_lstm_forecast": False,
 }
+
+# --- Paramètres LSTM ---
+LSTM_LOOKBACK = 14
+LSTM_FORECAST = 7

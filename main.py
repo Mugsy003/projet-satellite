@@ -172,6 +172,14 @@ def main():
     resultats["visualisation"] = run_step("visualisation", step_visualisation)
 
     # ========================================
+    # 6. FORECASTING LSTM
+    # ========================================
+    def step_train_lstm():
+        from Traitement.LSTM_Forecasting.train_lstm import main as train_lstm
+        train_lstm()
+    resultats["train_lstm_forecast"] = run_step("train_lstm_forecast", step_train_lstm)
+
+    # ========================================
     # RÉSUMÉ FINAL
     # ========================================
     elapsed_global = time.time() - start_global
