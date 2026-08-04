@@ -72,6 +72,8 @@ def plot_predictions():
     global_icos_pt = []
 
     for site in SITES_PILOTES.keys():
+        if site in ["Bondville", "Goodwin_Creek"]:
+            continue
         print(f"\n==========================================")
         print(f"Évaluation sur le site : {site}")
         print(f"==========================================")
@@ -81,7 +83,7 @@ def plot_predictions():
             print(f"Avertissement: Pas de données pour 2024 sur {site}.")
             continue
             
-        X_enc, X_dec, Y_true = create_sequences(df_val, lookback=14, forecast=7, add_noise=False)
+        X_enc, X_dec, Y_true = create_sequences(df_val, lookback=14, forecast=7)
         if len(X_enc) == 0:
             print(f"Avertissement: Séquences vides pour {site}.")
             continue
@@ -121,7 +123,7 @@ def plot_predictions():
         axes = axes.flatten()
         for i, idx in enumerate(indices):
             ax = axes[i]
-            past_y = X_enc[idx, :, 2]
+            past_y = X_enc[idx, :, 3]
             true_y = Y_true[idx, :, 0]
             pred_y = predictions[idx, :, 0]
             time_past = range(-14, 0)
@@ -208,6 +210,22 @@ def plot_predictions():
             plt.grid(True, alpha=0.3)
             plt.savefig(os.path.join(out_dir_eval, "3_Scatter_Plot_vs_ICOS.png"), dpi=300)
             plt.close()
+            
+            # 4. Histogramme des Résidus
+            residus_lstm = df_eval_clean['ET_LSTM_Pred'] - df_eval_clean['ET_Vrai_ICOS']
+            residus_pt = df_eval_clean['ET_PT_SINRH'] - df_eval_clean['ET_Vrai_ICOS']
+            
+            plt.figure(figsize=(8, 6))
+            plt.hist(residus_lstm, bins=20, alpha=0.5, color='red', label='Résidus LSTM')
+            plt.hist(residus_pt, bins=20, alpha=0.5, color='blue', label='Résidus PT-SINRH')
+            plt.axvline(x=0, color='k', linestyle='--', lw=2)
+            plt.title(f"Histogramme des Résidus vs ICOS - {site}")
+            plt.xlabel("Erreur (Prédiction - ICOS) [mm/jour]")
+            plt.ylabel("Fréquence")
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.savefig(os.path.join(out_dir_eval, "4_Histogramme_Residus.png"), dpi=300)
+            plt.close()
 
     print(f"\n==========================================")
     print(f"Génération des Graphiques Globaux")
@@ -245,6 +263,22 @@ def plot_predictions():
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.savefig(os.path.join(out_dir_global, "GLOBAL_Scatter_vs_ICOS.png"), dpi=300)
+        plt.close()
+        
+        # 4. GLOBAL Histogramme des Résidus
+        global_residus_lstm = np.array(global_icos_pred) - np.array(global_icos_true)
+        global_residus_pt = np.array(global_icos_pt) - np.array(global_icos_true)
+        
+        plt.figure(figsize=(8, 6))
+        plt.hist(global_residus_lstm, bins=50, alpha=0.5, color='red', label='Résidus LSTM')
+        plt.hist(global_residus_pt, bins=50, alpha=0.5, color='blue', label='Résidus PT-SINRH')
+        plt.axvline(x=0, color='k', linestyle='--', lw=2)
+        plt.title("GLOBAL Histogramme des Résidus vs ICOS")
+        plt.xlabel("Erreur (Prédiction - ICOS) [mm/jour]")
+        plt.ylabel("Fréquence")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.savefig(os.path.join(out_dir_global, "GLOBAL_Histogramme_Residus.png"), dpi=300)
         plt.close()
         
     print("Terminé ! Graphiques sauvegardés dans Outputs/Analyses_Graphiques/LSTM_Evaluation/")

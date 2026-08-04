@@ -49,7 +49,8 @@ def get_homogeneous_points(ndvi_path, center_r, center_c, num_points):
     variance[center_r, center_c] = np.inf
     
     # 1. On sélectionne un large pool des pixels les plus purs
-    pool_size = max((num_points - 1) * 20, 400)
+    # Tolérance de variance augmentée (pool plus grand)
+    pool_size = max((num_points - 1) * 100, 2000)
     flat_indices = np.argsort(variance, axis=None)[:pool_size]
     
     valid_candidates = []
@@ -113,9 +114,10 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
                 if date_str not in dict_dates: dict_dates[date_str] = {}
                 if "NDVI" in f: dict_dates[date_str]['ndvi'] = os.path.join(tif_folder, f)
                 if "SAVI" in f: dict_dates[date_str]['savi'] = os.path.join(tif_folder, f)
+                if "NDWI" in f: dict_dates[date_str]['ndwi'] = os.path.join(tif_folder, f)
             
-    # Filtre uniquement les jours ayant NDVI ET SAVI
-    valid_dates = {d: p for d, p in dict_dates.items() if 'ndvi' in p and 'savi' in p}
+    # Filtre uniquement les jours ayant NDVI, SAVI et NDWI
+    valid_dates = {d: p for d, p in dict_dates.items() if 'ndvi' in p and 'savi' in p and 'ndwi' in p}
     
     if not valid_dates:
         print(f"[{site}] Attention, aucune donnée satellite trouvée.")
@@ -138,7 +140,7 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
     sparse_data = []
     for date_str, paths in valid_dates.items():
         try:
-            with rasterio.open(paths['ndvi']) as src_ndvi, rasterio.open(paths['savi']) as src_savi:
+            with rasterio.open(paths['ndvi']) as src_ndvi, rasterio.open(paths['savi']) as src_savi, rasterio.open(paths['ndwi']) as src_ndwi:
                 transform = src_ndvi.transform
                 crs = src_ndvi.crs
                 
@@ -150,6 +152,7 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
 
                 ndvi_arr = src_ndvi.read(1)
                 savi_arr = src_savi.read(1)
+                ndwi_arr = src_ndwi.read(1)
                 
                 for pt_id, (x_p, y_p) in enumerate(geo_coords):
                     if transformer_reproj:
@@ -166,7 +169,8 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
                             'Point_ID': pt_id,
                             'Date': pd.to_datetime(date_str),
                             'NDVI': ndvi_arr[r, c],
-                            'SAVI': savi_arr[r, c]
+                            'SAVI': savi_arr[r, c],
+                            'NDWI': ndwi_arr[r, c]
                         })
         except Exception as e:
             print(f"Erreur sur {date_str}: {e}")
@@ -183,9 +187,10 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
         # Filtrage strict
         df_pt['NDVI'] = np.where((df_pt['NDVI'] < -1) | (df_pt['NDVI'] > 1), np.nan, df_pt['NDVI'])
         df_pt['SAVI'] = np.where((df_pt['SAVI'] < -1) | (df_pt['SAVI'] > 1), np.nan, df_pt['SAVI'])
+        df_pt['NDWI'] = np.where((df_pt['NDWI'] < -1) | (df_pt['NDWI'] > 1), np.nan, df_pt['NDWI'])
         
         # IQR stat
-        for col in ['NDVI', 'SAVI']:
+        for col in ['NDVI', 'SAVI', 'NDWI']:
             Q1 = df_pt[col].quantile(0.25)
             Q3 = df_pt[col].quantile(0.75)
             IQR = Q3 - Q1
@@ -220,8 +225,28 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
         'Rn (W/m²)': 'mean', 'R_s_down (W/m²)': 'mean', 'Pa (kPa)': 'mean'
     }).reset_index()
     
-    # 3. Fusionner ERA5 et SAT (On merge sur la date pour CHAQUE point)
+    # 2.5 Chargement de Open-Meteo (Prévisions)
+    openmeteo_path = os.path.join(OUTPUT_DIR, "Extraction", "OpenMeteo", f"donnees_openmeteo_{site}.csv")
+    if not os.path.exists(openmeteo_path):
+        print(f"Attention, fichier Open-Meteo introuvable pour {site}.")
+        return pd.DataFrame()
+        
+    df_om = pd.read_csv(openmeteo_path)
+    df_om['TIMESTAMP'] = pd.to_datetime(df_om['TIMESTAMP'])
+    df_om['Date'] = df_om['TIMESTAMP'].dt.normalize()
+    
+    df_om_daily = df_om.groupby('Date').agg({
+        'Ta (°C)': 'mean', 'RH (%)': 'mean'
+    }).reset_index()
+    
+    df_om_daily = df_om_daily.rename(columns={
+        'Ta (°C)': 'Ta_fcst',
+        'RH (%)': 'RH_fcst'
+    })
+    
+    # 3. Fusionner ERA5, SAT et Open-Meteo (Inner join pour garantir la présence des prévisions)
     df_full = pd.merge(df_sat_clean, df_era_daily, on='Date', how='inner')
+    df_full = pd.merge(df_full, df_om_daily, on='Date', how='inner')
     df_full = df_full.set_index('Date').sort_index()
     df_full = df_full.loc[f"{start_year}-01-01":f"{end_year}-12-31"].copy()
     
@@ -274,16 +299,16 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
     
     return df_full.dropna()
 
-def create_sequences(df, lookback=14, forecast=7, add_noise=False):
+def create_sequences(df, lookback=14, forecast=7):
     """
     Crée les fenêtres glissantes d'Entraînement.
     Le groupement est fait par Point_ID pour ne jamais mélanger les pixels.
-    Si add_noise=True, on injecte un bruit croissant sur les variables du décodeur
-    (T_air, Rn, RH) pour simuler l'incertitude des prévisions météorologiques.
+    On utilise les données ERA5 (Ta, RH) pour l'encodeur (passé) 
+    et les prévisions Open-Meteo (Ta_fcst, RH_fcst) pour le décodeur (futur).
     """
     X_enc, X_dec, Y = [], [], []
-    features_enc = ['NDVI', 'SAVI', 'PT_SINRH_ET', 'Ta', 'Rn', 'RH', 'DOY_sin', 'DOY_cos']
-    features_dec = ['Ta', 'Rn', 'RH', 'DOY_sin', 'DOY_cos']
+    features_enc = ['NDVI', 'SAVI', 'NDWI', 'PT_SINRH_ET', 'Ta', 'RH']
+    features_dec = ['Ta_fcst', 'RH_fcst']
     
     # Profils d'incertitude (écart-type croissant avec l'horizon)
     sigma_Ta = np.linspace(0.5, 3.5, forecast) # erreur en °C
@@ -298,26 +323,8 @@ def create_sequences(df, lookback=14, forecast=7, add_noise=False):
         
         for i in range(len(df_pt) - lookback - forecast + 1):
             x_e = arr_enc[i : i + lookback]
-            x_d = np.copy(arr_dec[i + lookback : i + lookback + forecast])
+            x_d = arr_dec[i + lookback : i + lookback + forecast]
             y = arr_y[i + lookback : i + lookback + forecast]
-            
-            if add_noise:
-                # Sauvegarde du signe de Rn pour éviter les inversions physiques
-                rn_was_positive = x_d[:, 1] > 0
-                
-                # Ajout de bruit gaussien
-                noise_Ta = np.random.normal(0, sigma_Ta)
-                noise_Rn = np.random.normal(0, sigma_Rn_pct * np.abs(x_d[:, 1]))
-                noise_RH = np.random.normal(0, sigma_RH)
-                
-                x_d[:, 0] += noise_Ta
-                
-                # Appliquer le bruit sur Rn et s'assurer qu'un Rn positif reste positif
-                noisy_rn = x_d[:, 1] + noise_Rn
-                x_d[:, 1] = np.where(rn_was_positive, np.maximum(0, noisy_rn), noisy_rn)
-                
-                # L'humidité relative doit strictement rester entre 0 et 100%
-                x_d[:, 2] = np.clip(x_d[:, 2] + noise_RH, 0, 100)
             
             X_enc.append(x_e)
             X_dec.append(x_d)

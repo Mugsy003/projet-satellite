@@ -112,7 +112,7 @@ def main():
         # Train (2021-2022) - Avec bruit
         df_train = build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2022")
         if not df_train.empty:
-            xe, xd, y = create_sequences(df_train, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST, add_noise=True)
+            xe, xd, y = create_sequences(df_train, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST)
             X_enc_train.append(xe)
             X_dec_train.append(xd)
             Y_train.append(y)
@@ -120,7 +120,7 @@ def main():
         # Validation (2023) - Pour l'Early Stopping (Sans bruit)
         df_val = build_continuous_dataset(site, num_points=15, start_year="2023", end_year="2023")
         if not df_val.empty:
-            xe, xd, y = create_sequences(df_val, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST, add_noise=False)
+            xe, xd, y = create_sequences(df_val, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST)
             X_enc_val.append(xe)
             X_dec_val.append(xd)
             Y_val.append(y)
@@ -128,7 +128,7 @@ def main():
         # Test (2024) - Pour la performance finale (Sans bruit)
         df_test = build_continuous_dataset(site, num_points=15, start_year="2024", end_year="2024")
         if not df_test.empty:
-            xe, xd, y = create_sequences(df_test, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST, add_noise=False)
+            xe, xd, y = create_sequences(df_test, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST)
             X_enc_test.append(xe)
             X_dec_test.append(xd)
             Y_test.append(y)

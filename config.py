@@ -54,8 +54,8 @@ SITES_PILOTES = {
    "Grignon": {"lon": 1.952, "lat":  48.844},
    "Lamasquere": {"lon": 1.237878, "lat": 43.496437},
    # --- Stations NOAA SURFRAD ---
-   "Bondville": {"lon": -88.37309, "lat": 40.05192},
-   "Goodwin_Creek": {"lon": -89.8729, "lat": 34.25473},
+   #"Bondville": {"lon": -88.37309, "lat": 40.05192},
+   #"Goodwin_Creek": {"lon": -89.8729, "lat": 34.25473},
 }
 
 # --- Paramètres TTME (Long & Singh, 2012) ---
@@ -111,15 +111,15 @@ DATE_FIN_VISU = "2024-01-01"
 
 # --- Pipeline : étapes à exécuter via main.py ---
 PIPELINE_STEPS = {
-    "extraction_landsat": False,
+    "extraction_landsat": True,
     "extraction_ecostress": False,
-    "extraction_sentinel": True,
+    "extraction_sentinel": False,
     "extraction_sentinel3": False,
     "extraction_paires_eco_s2": False,
     "extraction_paires_s3_s2": False,
-    "transform_landsat": False,
+    "transform_landsat": True,
     "transform_ecostress": False,
-    "transform_sentinel": True,
+    "transform_sentinel": False,
     "transform_sentinel3": False,
     "sharpening_dms_landsat": False,
     "sharpening_tsharp_landsat": False,

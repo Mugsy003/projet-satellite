@@ -42,9 +42,9 @@ def compute_feature_importance():
         print(f"❌ Modèle introuvable : {model_path}")
         return
         
-    # Noms des features (Doit correspondre au modèle sauvegardé qui prenait 6 et 5 features)
-    enc_features = ['NDVI', 'SAVI', 'PT_SINRH_ET', 'Ta', 'Rn', 'RH']
-    dec_features = ['Ta', 'Rn', 'RH', 'DOY_sin', 'DOY_cos']
+    # Noms des features (Doit correspondre au modèle sauvegardé qui prenait 6 et 2 features)
+    enc_features = ['NDVI', 'SAVI', 'NDWI', 'PT_SINRH_ET', 'Ta', 'RH']
+    dec_features = ['Ta_fcst', 'RH_fcst']
     
     # 1. Charger l'échantillon de données (Année 2024 de Gebesee par exemple)
     print("Chargement des données de test (Gebesee 2024)...")
@@ -53,13 +53,13 @@ def compute_feature_importance():
         print("❌ Aucune donnée trouvée pour 2024.")
         return
         
-    xe, xd, _ = create_sequences(df_val, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST)
+    xe, xd, _ = create_sequences(df_val, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST, add_noise=True)
     
     # Prendre un échantillon pour ne pas exploser la RAM (ex: 500 séquences)
     np.random.seed(42)
     sample_indices = np.random.choice(len(xe), min(500, len(xe)), replace=False)
     xe_sample = xe[sample_indices, :, :6]  # On garde seulement les 6 premières features pour correspondre au modèle
-    xd_sample = xd[sample_indices, :, :5]  # Idem, 5 premières pour le decodeur
+    xd_sample = xd[sample_indices, :, :2]  # Idem, 2 premières pour le decodeur
     
     # 2. Normalisation (Z-Score)
     # Pour Captum, l'idéal est de normaliser avec les mêmes stats que le modèle
