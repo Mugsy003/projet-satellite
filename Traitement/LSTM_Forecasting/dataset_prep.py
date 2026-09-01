@@ -9,7 +9,7 @@ from scipy.ndimage import uniform_filter
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from config import OUTPUT_DIR, SITES_PILOTES
+from config import OUTPUT_DIR, SITES_PILOTES, LSTM_LOOKBACK, LSTM_FORECAST
 from Traitement.PT_SINRH.algorithme_PT_SINRH import calculate_pt_sinrh_et
 
 LAMBDA_V = 2.45e6
@@ -38,10 +38,23 @@ def get_homogeneous_points(ndvi_path, center_r, center_c, num_points):
     # Tolérance plus permissive pour accepter les sols nus agricoles / cultures coupées
     mask_veg = (ndvi > 0.1) & (ndvi <= 1.0)
     
-    # Calcul variance locale 3x3
-    c1 = uniform_filter(ndvi, size=3, mode='reflect')
-    c2 = uniform_filter(ndvi**2, size=3, mode='reflect')
-    variance = c2 - c1**2
+    # Calcul variance locale 3x3 tolérant aux NaNs
+    valid = ~np.isnan(ndvi)
+    ndvi_filled = np.nan_to_num(ndvi, nan=0.0)
+    
+    # Utilisation de constant cval=0 pour éviter les effets de bord
+    sum_ndvi = uniform_filter(ndvi_filled, size=3, mode='constant', cval=0.0) * 9
+    sum_sq_ndvi = uniform_filter(ndvi_filled**2, size=3, mode='constant', cval=0.0) * 9
+    count_valid = uniform_filter(valid.astype(float), size=3, mode='constant', cval=0.0) * 9
+    count_valid = np.round(count_valid)
+    
+    with np.errstate(divide='ignore', invalid='ignore'):
+        mean_ndvi = sum_ndvi / count_valid
+        mean_sq_ndvi = sum_sq_ndvi / count_valid
+        variance = mean_sq_ndvi - mean_ndvi**2
+        
+    variance[count_valid < 5] = np.inf # Exiger au moins 5 pixels valides dans le 3x3
+    variance[np.isnan(variance)] = np.inf
     
     # Exclure les pixels non végétaux en mettant leur variance à l'infini
     variance[~mask_veg] = np.inf
@@ -89,11 +102,22 @@ def get_homogeneous_points(ndvi_path, center_r, center_c, num_points):
         
     return geo_coords, crs
 
-def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2024"):
+def build_continuous_dataset(site, num_points=20, start_date="2021-01-01", end_date="2024-12-31", include_openmeteo=False, use_cache=True):
     """
     Construit un dataset journalier continu pour un site, en exploitant num_points pixels
     spatiaux pour faire de la Data Augmentation (Pixels homogènes).
+    Si use_cache=True, le dataset est sauvegardé/chargé depuis Outputs/Cache_Datasets/.
     """
+    # --- Cache ---
+    cache_dir = os.path.join(OUTPUT_DIR, "Cache_Datasets")
+    os.makedirs(cache_dir, exist_ok=True)
+    om_tag = "OM" if include_openmeteo else "ERA"
+    cache_file = os.path.join(cache_dir, f"{site}_{start_date}_{end_date}_{num_points}pts_{om_tag}.parquet")
+    
+    if use_cache and os.path.exists(cache_file):
+        print(f"[{site}] ⚡ Chargement depuis le cache ({os.path.basename(cache_file)})")
+        return pd.read_parquet(cache_file)
+    
     print(f"[{site}] Construction du dataset continu (Spatial Augmentation: {num_points} pts)...")
     coords = SITES_PILOTES[site]
     
@@ -226,29 +250,36 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
     }).reset_index()
     
     # 2.5 Chargement de Open-Meteo (Prévisions)
-    openmeteo_path = os.path.join(OUTPUT_DIR, "Extraction", "OpenMeteo", f"donnees_openmeteo_{site}.csv")
-    if not os.path.exists(openmeteo_path):
-        print(f"Attention, fichier Open-Meteo introuvable pour {site}.")
-        return pd.DataFrame()
+    if include_openmeteo:
+        openmeteo_path = os.path.join(OUTPUT_DIR, "Extraction", "OpenMeteo", f"donnees_openmeteo_{site}.csv")
+        if not os.path.exists(openmeteo_path):
+            print(f"Attention, fichier Open-Meteo introuvable pour {site}.")
+            return pd.DataFrame()
+            
+        df_om = pd.read_csv(openmeteo_path)
         
-    df_om = pd.read_csv(openmeteo_path)
-    df_om['TIMESTAMP'] = pd.to_datetime(df_om['TIMESTAMP'])
-    df_om['Date'] = df_om['TIMESTAMP'].dt.normalize()
+        # Sécurité : Si le fichier a été téléchargé avant la mise à jour (pas de Rs), on l'ignore
+        if 'Rs_fcst_J1' not in df_om.columns:
+            print(f"Attention, la colonne Rs_fcst_J1 est manquante pour {site} (probablement bloqué par limite API 429). On ignore ce site pour l'instant.")
+            return pd.DataFrame()
+            
+        df_om['TIMESTAMP'] = pd.to_datetime(df_om['TIMESTAMP'])
+        df_om['Date'] = df_om['TIMESTAMP'].dt.normalize()
+        
+        agg_dict = {}
+        for d in range(1, 8):
+            agg_dict[f'Ta_fcst_J{d}'] = 'mean'
+            agg_dict[f'RH_fcst_J{d}'] = 'mean'
+            agg_dict[f'Rs_fcst_J{d}'] = 'mean'
+            
+        df_om_daily = df_om.groupby('Date').agg(agg_dict).reset_index()
     
-    df_om_daily = df_om.groupby('Date').agg({
-        'Ta (°C)': 'mean', 'RH (%)': 'mean'
-    }).reset_index()
-    
-    df_om_daily = df_om_daily.rename(columns={
-        'Ta (°C)': 'Ta_fcst',
-        'RH (%)': 'RH_fcst'
-    })
-    
-    # 3. Fusionner ERA5, SAT et Open-Meteo (Inner join pour garantir la présence des prévisions)
+    # 3. Fusionner ERA5, SAT et Open-Meteo (Inner join pour garantir la présence des prévisions si demandé)
     df_full = pd.merge(df_sat_clean, df_era_daily, on='Date', how='inner')
-    df_full = pd.merge(df_full, df_om_daily, on='Date', how='inner')
+    if include_openmeteo:
+        df_full = pd.merge(df_full, df_om_daily, on='Date', how='inner')
     df_full = df_full.set_index('Date').sort_index()
-    df_full = df_full.loc[f"{start_year}-01-01":f"{end_year}-12-31"].copy()
+    df_full = df_full.loc[start_date:end_date].copy()
     
     # 4. Calcul dynamique PT-SINRH pour chaque jour et chaque point (Vecteur)
     T = len(df_full)
@@ -286,8 +317,7 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
     doy = df_full['Date'].dt.dayofyear
     df_full['DOY_sin'] = np.sin(2 * np.pi * doy / 365.25)
     df_full['DOY_cos'] = np.cos(2 * np.pi * doy / 365.25)
-    
-    df_full = df_full.rename(columns={'Ta (°C)': 'Ta', 'Rn (W/m²)': 'Rn', 'RH (%)': 'RH'})
+    df_full = df_full.rename(columns={'Ta (°C)': 'Ta', 'Rn (W/m²)': 'Rn', 'RH (%)': 'RH', 'R_s_down (W/m²)': 'Rs'})
     
     # Clipping IQR pour éviter les explosions statistiques, on le fait globalement
     for col in ['Ta', 'Rn', 'RH', 'PT_SINRH_ET']:
@@ -297,35 +327,94 @@ def build_continuous_dataset(site, num_points=15, start_year="2021", end_year="2
         lb, ub = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
         df_full[col] = np.clip(df_full[col], lb, ub)
     
-    return df_full.dropna()
+    result = df_full.dropna()
+    
+    # --- Sauvegarde en cache ---
+    if use_cache and not result.empty:
+        result.to_parquet(cache_file, index=False)
+        print(f"[{site}] ✅ Dataset sauvegardé en cache ({os.path.basename(cache_file)}, {len(result)} lignes)")
+    
+    return result
 
-def create_sequences(df, lookback=14, forecast=7):
+def create_sequences(df, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST, use_true_forecast=True, add_noise=False):
     """
     Crée les fenêtres glissantes d'Entraînement.
     Le groupement est fait par Point_ID pour ne jamais mélanger les pixels.
-    On utilise les données ERA5 (Ta, RH) pour l'encodeur (passé) 
-    et les prévisions Open-Meteo (Ta_fcst, RH_fcst) pour le décodeur (futur).
+    On utilise les données ERA5/SAT pour l'encodeur (passé).
+    Le décodeur utilise les VRAIES prévisions J1 à J7 extraites le dernier jour du lookback.
     """
     X_enc, X_dec, Y = [], [], []
-    features_enc = ['NDVI', 'SAVI', 'NDWI', 'PT_SINRH_ET', 'Ta', 'RH']
-    features_dec = ['Ta_fcst', 'RH_fcst']
-    
-    # Profils d'incertitude (écart-type croissant avec l'horizon)
-    sigma_Ta = np.linspace(0.5, 3.5, forecast) # erreur en °C
-    sigma_Rn_pct = np.linspace(0.05, 0.25, forecast) # erreur en pourcentage (5% à 25%)
-    sigma_RH = np.linspace(2.0, 15.0, forecast) # erreur en % d'humidité
+    features_enc = ['NDVI', 'SAVI', 'NDWI', 'PT_SINRH_ET', 'Ta', 'RH', 'Rn']
     
     for pt_id, df_pt in df.groupby('Point_ID'):
-        df_pt = df_pt.sort_values('Date')
+        df_pt = df_pt.sort_values('Date').reset_index(drop=True)
         arr_enc = df_pt[features_enc].values
-        arr_dec = df_pt[features_dec].values
         arr_y = df_pt[['PT_SINRH_ET']].values
         
         for i in range(len(df_pt) - lookback - forecast + 1):
             x_e = arr_enc[i : i + lookback]
-            x_d = arr_dec[i + lookback : i + lookback + forecast]
             y = arr_y[i + lookback : i + lookback + forecast]
             
+            x_d = np.zeros((forecast, 3), dtype=np.float32)
+            
+            if use_true_forecast:
+                # Jour T = i + lookback - 1 (Le jour où la prévision est émise)
+                row_T = df_pt.iloc[i + lookback - 1]
+                for f_idx in range(forecast):
+                    x_d[f_idx, 0] = row_T[f'Ta_fcst_J{f_idx+1}']
+                    x_d[f_idx, 1] = row_T[f'RH_fcst_J{f_idx+1}']
+                    x_d[f_idx, 2] = row_T[f'Rs_fcst_J{f_idx+1}']
+            else:
+                # Extraction des vraies valeurs futures (ERA5)
+                future_Ta = arr_enc[i + lookback : i + lookback + forecast, 4] # Ta
+                future_RH = arr_enc[i + lookback : i + lookback + forecast, 5] # RH
+                future_Rs = df_pt['Rs'].values[i + lookback : i + lookback + forecast] # Rs (il n'est pas dans features_enc, on le prend dans df_pt)
+                
+                # Statistiques d'erreur empiriques d'Open-Meteo recalculées
+                BIAS_TA = [-1.863, -1.841, -1.829, -1.804, -1.833, -1.840, -2.022]
+                STD_TA  = [2.531, 3.398, 3.819, 4.062, 4.241, 4.337, 4.331]
+                RHO_TA = 0.10
+                
+                BIAS_RH = [6.732, 5.609, 5.607, 5.512, 6.170, 6.332, 4.414]
+                STD_RH  = [10.599, 11.984, 12.505, 12.751, 12.727, 12.788, 13.527]
+                RHO_RH = 0.08
+                
+                # Nouveaux paramètres Rs empiriques (très forte sous-estimation par OM)
+                BIAS_RS = [-223.155, -219.763, -219.316, -219.515, -219.591, -215.666, -195.300]
+                STD_RS  = [154.365, 162.875, 164.515, 166.225, 168.069, 173.899, 167.296]
+                RHO_RS = 0.40
+                
+                # Initialisation des processus AR(1) pour la trajectoire (N(0,1))
+                x_ta = np.random.normal(0, 1) if add_noise else 0
+                x_rh = np.random.normal(0, 1) if add_noise else 0
+                x_rs = np.random.normal(0, 1) if add_noise else 0
+                
+                for f_idx in range(forecast):
+                    if add_noise:
+                        # Processus AR(1): X_t = rho * X_{t-1} + sqrt(1 - rho^2) * Z_t
+                        if f_idx > 0:
+                            x_ta = RHO_TA * x_ta + np.sqrt(1 - RHO_TA**2) * np.random.normal(0, 1)
+                            x_rh = RHO_RH * x_rh + np.sqrt(1 - RHO_RH**2) * np.random.normal(0, 1)
+                            x_rs = RHO_RS * x_rs + np.sqrt(1 - RHO_RS**2) * np.random.normal(0, 1)
+                            
+                        # Dénormalisation avec biais et std empiriques
+                        ta_val = future_Ta[f_idx] + BIAS_TA[f_idx] + STD_TA[f_idx] * x_ta
+                        rh_val = future_RH[f_idx] + BIAS_RH[f_idx] + STD_RH[f_idx] * x_rh
+                        rs_val = future_Rs[f_idx] + BIAS_RS[f_idx] + STD_RS[f_idx] * x_rs
+                        
+                        # Cliping
+                        rh_val = np.clip(rh_val, 10.0, 100.0)
+                        rs_val = np.maximum(rs_val, 0.0)
+                    else:
+                        ta_val = future_Ta[f_idx]
+                        rh_val = future_RH[f_idx]
+                        rs_val = future_Rs[f_idx]
+                        
+                    x_d[f_idx, 0] = ta_val
+                    x_d[f_idx, 1] = rh_val
+                    x_d[f_idx, 2] = rs_val
+                
+                
             X_enc.append(x_e)
             X_dec.append(x_d)
             Y.append(y)

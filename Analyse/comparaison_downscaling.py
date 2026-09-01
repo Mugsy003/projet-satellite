@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from pyproj import Transformer
 
 sys.stdout.reconfigure(encoding='utf-8')
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import LOGGER, SITES_PILOTES
 
@@ -78,7 +79,7 @@ def get_ta_era5_brute(site, date_str):
         return None
     
     idx = (df_window['TIMESTAMP'] - target).abs().idxmin()
-    ta = df_window.loc[idx, 'TA_Consolide']
+    ta = df_window.loc[idx, 'Ta (°C)']
     return float(ta) if pd.notna(ta) else None
 
 
@@ -88,13 +89,17 @@ def get_ta_downscaled(site, date_str):
     if not os.path.exists(tif_path):
         return None
     
-    coords = SITES_PILOTES[site]
     ds = rioxarray.open_rasterio(tif_path).squeeze()
     
-    # Transformer lon/lat vers le CRS du raster
-    crs_raster = ds.rio.crs
-    transformer = Transformer.from_crs("EPSG:4326", crs_raster, always_xy=True)
-    x_utm, y_utm = transformer.transform(coords['lon'], coords['lat'])
+    if site in SITES_PILOTES:
+        coords = SITES_PILOTES[site]
+        crs_raster = ds.rio.crs
+        transformer = Transformer.from_crs("EPSG:4326", crs_raster, always_xy=True)
+        x_utm, y_utm = transformer.transform(coords['lon'], coords['lat'])
+    else:
+        # Fallback to the center of the TIF
+        x_utm = ds.x.values[len(ds.x) // 2]
+        y_utm = ds.y.values[len(ds.y) // 2]
     
     # Extraire la valeur au pixel le plus proche
     try:
@@ -190,11 +195,13 @@ def main():
     ax.scatter(valid['Ta_ICOS'], valid['Ta_ERA5_brute'], c='tab:blue', alpha=0.7, s=60, edgecolors='white')
     lims = [min(valid['Ta_ICOS'].min(), valid['Ta_ERA5_brute'].min()) - 2,
             max(valid['Ta_ICOS'].max(), valid['Ta_ERA5_brute'].max()) + 2]
-    ax.plot(lims, lims, 'k--', alpha=0.5)
-    ax.set_xlabel("Ta ICOS (°C)")
+    if not np.isnan(lims).any():
+        ax.set_xlim(lims); ax.set_ylim(lims)
+        ax.plot(lims, lims, 'k--', alpha=0.75, zorder=0)
+    
+    ax.set_xlabel('Ta ICOS mesurée (°C)', fontweight='bold')
     ax.set_ylabel("Ta ERA5 brute (°C)")
     ax.set_title(f"ERA5 brute\nMAE={mae_era5:.2f}°C, RMSE={rmse_era5:.2f}°C")
-    ax.set_xlim(lims); ax.set_ylim(lims)
     ax.set_aspect('equal')
     ax.grid(alpha=0.3)
     

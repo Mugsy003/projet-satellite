@@ -9,7 +9,7 @@ from captum.attr import IntegratedGradients
 
 # Ajuster le chemin pour importer depuis la racine
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from config import OUTPUT_DIR, LSTM_LOOKBACK, LSTM_FORECAST
+from config import OUTPUT_DIR, LSTM_LOOKBACK, LSTM_FORECAST, LSTM_HIDDEN_DIM, LSTM_NUM_LAYERS, LSTM_DROPOUT
 from Traitement.LSTM_Forecasting.model_lstm import Seq2SeqLSTM
 from Traitement.LSTM_Forecasting.train_lstm import get_device
 from Traitement.LSTM_Forecasting.dataset_prep import build_continuous_dataset, create_sequences
@@ -42,13 +42,13 @@ def compute_feature_importance():
         print(f"❌ Modèle introuvable : {model_path}")
         return
         
-    # Noms des features (Doit correspondre au modèle sauvegardé qui prenait 6 et 2 features)
-    enc_features = ['NDVI', 'SAVI', 'NDWI', 'PT_SINRH_ET', 'Ta', 'RH']
-    dec_features = ['Ta_fcst', 'RH_fcst']
+    # Noms des features (Doit correspondre au modèle sauvegardé qui prenait 7 et 3 features)
+    enc_features = ['NDVI', 'SAVI', 'NDWI', 'PT_SINRH_ET', 'Ta', 'RH', 'Rn']
+    dec_features = ['Ta_fcst', 'RH_fcst', 'Rs_fcst']
     
     # 1. Charger l'échantillon de données (Année 2024 de Gebesee par exemple)
     print("Chargement des données de test (Gebesee 2024)...")
-    df_val = build_continuous_dataset("Gebesee", num_points=15, start_year="2024", end_year="2024")
+    df_val = build_continuous_dataset("Gebesee", num_points=15, start_date="2024-01-01", end_date="2024-12-31", include_openmeteo=True)
     if df_val.empty:
         print("❌ Aucune donnée trouvée pour 2024.")
         return
@@ -58,8 +58,8 @@ def compute_feature_importance():
     # Prendre un échantillon pour ne pas exploser la RAM (ex: 500 séquences)
     np.random.seed(42)
     sample_indices = np.random.choice(len(xe), min(500, len(xe)), replace=False)
-    xe_sample = xe[sample_indices, :, :6]  # On garde seulement les 6 premières features pour correspondre au modèle
-    xd_sample = xd[sample_indices, :, :2]  # Idem, 2 premières pour le decodeur
+    xe_sample = xe[sample_indices, :, :7]  # On garde les 7 features
+    xd_sample = xd[sample_indices, :, :3]  # Idem, 3 pour le decodeur
     
     # 2. Normalisation (Z-Score)
     # Pour Captum, l'idéal est de normaliser avec les mêmes stats que le modèle
@@ -80,10 +80,10 @@ def compute_feature_importance():
     model = Seq2SeqLSTM(
         encoder_input_dim=len(enc_features),
         decoder_input_dim=len(dec_features),
-        hidden_dim=64,
+        hidden_dim=LSTM_HIDDEN_DIM,
         output_dim=1,
-        num_layers=2,
-        dropout=0.3
+        num_layers=LSTM_NUM_LAYERS,
+        dropout=LSTM_DROPOUT
     ).to(device)
     
     model.load_state_dict(torch.load(model_path, map_location=device))

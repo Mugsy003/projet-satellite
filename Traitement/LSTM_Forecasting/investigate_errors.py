@@ -8,7 +8,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, LSTM_LOOKBACK, LSTM_FORECAST, LSTM_HIDDEN_DIM, LSTM_NUM_LAYERS, LSTM_DROPOUT
 from Traitement.LSTM_Forecasting.dataset_prep import build_continuous_dataset, create_sequences
 from Traitement.LSTM_Forecasting.model_lstm import Seq2SeqLSTM
 from Traitement.LSTM_Forecasting.train_lstm import get_device
@@ -16,22 +16,23 @@ from Traitement.LSTM_Forecasting.train_lstm import get_device
 def investigate_errors():
     site = "Gebesee"
     print(f"Chargement des données 2024 pour {site}...")
-    df_val = build_continuous_dataset(site, start_year="2024", end_year="2024")
+    # Chargement du dataset continu
+    df_val = build_continuous_dataset(site, num_points=50, start_date="2024-01-01", end_date="2024-12-31", include_openmeteo=True)
     
     if df_val.empty:
         print("Erreur: Pas de données pour 2024.")
         return
         
-    X_enc, X_dec, Y_true = create_sequences(df_val, lookback=14, forecast=7)
+    X_enc, X_dec, Y_true = create_sequences(df_val, lookback=LSTM_LOOKBACK, forecast=LSTM_FORECAST)
     
     device = get_device()
     model = Seq2SeqLSTM(
         encoder_input_dim=X_enc.shape[2],
         decoder_input_dim=X_dec.shape[2],
-        hidden_dim=64,
+        hidden_dim=LSTM_HIDDEN_DIM,
         output_dim=1,
-        num_layers=2,
-        dropout=0.2
+        num_layers=LSTM_NUM_LAYERS,
+        dropout=LSTM_DROPOUT
     ).to(device)
     
     out_dir = os.path.join(OUTPUT_DIR, "Modeles_ML")
@@ -66,7 +67,7 @@ def investigate_errors():
     
     # Récupérer les Dates et Températures correspondantes
     # Pour la séquence i, le jour J+1 correspond à l'index df_val.index[i + lookback]
-    target_indices = np.arange(14, 14 + len(y_true_day1))
+    target_indices = np.arange(LSTM_LOOKBACK, LSTM_LOOKBACK + len(y_true_day1))
     
     doys = df_val['Date'].iloc[target_indices].dt.dayofyear
     temperatures = df_val['Ta'].iloc[target_indices].values

@@ -48,7 +48,7 @@ def plot_spatial_maps(site="Gebesee"):
         r_icos = int((y_icos - transform.f) / transform.e)
         
     # Carte Pixels Entrainement
-    pts, pts_crs = get_homogeneous_points(ndvi_path, r_icos, c_icos, num_points=15)
+    pts, pts_crs = get_homogeneous_points(ndvi_path, r_icos, c_icos, num_points=500)
     
     with rasterio.open(ndvi_path) as src:
         ndvi_data = src.read(1)
@@ -61,7 +61,9 @@ def plot_spatial_maps(site="Gebesee"):
         
         # Pixel ICOS central en bleu a déjà été calculé
         
-        # Autres pixels en rouge (pts contient des tuples (x_p, y_p) projetés)
+        # Autres pixels en magenta (pts contient des tuples (x_p, y_p) projetés)
+        c_ps = []
+        r_ps = []
         for i, (x_p, y_p) in enumerate(pts):
             c_p = int((x_p - transform.c) / transform.a)
             r_p = int((y_p - transform.f) / transform.e)
@@ -69,12 +71,13 @@ def plot_spatial_maps(site="Gebesee"):
             # Ne pas redessiner le central
             if c_p == c_icos and r_p == r_icos:
                 continue
-                
-            rect = patches.Rectangle((c_p-0.5, r_p-0.5), 1, 1, linewidth=1.5, edgecolor='magenta', facecolor='none')
-            plt.gca().add_patch(rect)
+            c_ps.append(c_p)
+            r_ps.append(r_p)
+            
+        plt.scatter(c_ps, r_ps, color='magenta', s=10, marker='x', label='Pixels Sélectionnés (Homogènes)')
             
         # Dessiner ICOS par dessus pour qu'il soit visible
-        rect = patches.Rectangle((c_icos-0.5, r_icos-0.5), 1, 1, linewidth=3, edgecolor='blue', facecolor='none', label='Tour ICOS (Centre)')
+        rect = patches.Rectangle((c_icos-1.5, r_icos-1.5), 3, 3, linewidth=3, edgecolor='blue', facecolor='none', label='Tour ICOS (Centre)')
         plt.gca().add_patch(rect)
             
         # Zoom autour d'ICOS

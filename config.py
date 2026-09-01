@@ -24,7 +24,7 @@ for directory in [OUTPUT_DIR, PREVIEWS_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 # --- Constantes du Projet ---
-TIME_OF_INTEREST = "2021-01-01/2024-01-01"
+TIME_OF_INTEREST = "2025-01-01/2026-01-01"
 
 BANDS_OF_INTEREST = ["nir08", "red", "green", "blue", "qa_pixel", "lwir11","swir16", "swir22"]
 BANDS_OF_INTEREST_S2 = ["B02", "B03", "B04", "B08", "B11", "SCL"]
@@ -132,6 +132,14 @@ PIPELINE_STEPS = {
     "train_lstm_forecast": False,
 }
 
-# --- Paramètres LSTM ---
-LSTM_LOOKBACK = 14
+# --- Paramètres Modèle LSTM ---
+LSTM_LOOKBACK = 20
 LSTM_FORECAST = 7
+LSTM_HIDDEN_DIM = 64
+LSTM_NUM_LAYERS = 2
+LSTM_DROPOUT = 0.1
+
+# --- Paramètres Entraînement LSTM ---
+LSTM_EPOCHS = 30
+LSTM_LR = 0.00005
+LSTM_WEIGHT_DECAY = 0.0002

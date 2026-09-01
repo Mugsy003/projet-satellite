@@ -287,7 +287,7 @@ def main():
         #     continue
             
         start_year = 2021
-        end_year = 2024
+        end_year = 2025
         
         try:
             df = extract_gee_era5(site, lon, lat, start_year, end_year)
